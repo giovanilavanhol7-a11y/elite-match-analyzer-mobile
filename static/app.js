@@ -1,862 +1,1211 @@
-const $ = (id) => document.getElementById(id);
-
-const fixturesEl = $("fixtures");
-const notice = $("notice");
-const analysisPanel = $("analysisPanel");
-
-let currentFixture = null;
-let currentSample = 10;
-
-
-function initials(name) {
-  return (name || "?")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(x => x[0])
-    .join("")
-    .toUpperCase();
-}
-
-
-function showNotice(text) {
-  notice.textContent = text;
-  notice.classList.toggle("hidden", !text);
-}
-
-
-async function getJSON(url) {
-  const response = await fetch(url);
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(
-      data.error ||
-      data.message ||
-      "Erro ao carregar dados"
-    );
-  }
-
-  return data;
-}
-
-
-function formatStat(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "Sem dados";
-  }
-
-  const num = Number(value);
-
-  if (Number.isNaN(num)) {
-    return "Sem dados";
-  }
-
-  return num.toFixed(2);
-}
-
-
-function teamIcon(team) {
-  if (team.logo) {
-    return `
-      <img
-        class="mini-logo"
-        src="${team.logo}"
-        alt=""
-      >
-    `;
-  }
-
-  return `
-    <div class="mini-fallback">
-      ${initials(team.name)}
-    </div>
-  `;
-}
-
-
-function renderFixtures(items) {
-  if (!items.length) {
-    fixturesEl.innerHTML = `
-      <div class="card empty">
-        Nenhuma partida encontrada para hoje.
-      </div>
-    `;
-    return;
-  }
-
-  fixturesEl.innerHTML = items.map(f => `
-    <button
-      class="fixture"
-      data-id="${f.id}"
-    >
-      <div class="fixture-top">
-        <span class="fixture-league">
-          ${f.league}
-        </span>
-
-        <span class="fixture-time">
-          ${f.time || f.status || "—"}
-        </span>
-      </div>
-
-      <div class="fixture-teams">
-        <div class="mini-team">
-          ${teamIcon(f.home)}
-          <strong>${f.home.name}</strong>
-        </div>
-
-        <span class="fixture-vs">
-          x
-        </span>
-
-        <div class="mini-team">
-          <strong>${f.away.name}</strong>
-          ${teamIcon(f.away)}
-        </div>
-      </div>
-    </button>
-  `).join("");
-
-  document
-    .querySelectorAll(".fixture")
-    .forEach(btn => {
-      btn.addEventListener("click", () => {
-        const item = items.find(
-          x =>
-            String(x.id) ===
-            btn.dataset.id
-        );
-
-        openAnalysis(item);
-      });
-    });
-}
-
-
-async function loadFixtures() {
-  fixturesEl.innerHTML = `
-    <div class="card loader">
-      Carregando jogos...
-    </div>
-  `;
-
-  try {
-    const health = await getJSON(
-      "/api/health"
-    );
-
-    $("modeBadge").textContent =
-      health.api_configured &&
-      !health.demo_mode
-        ? "DADOS REAIS"
-        : "DEMO";
-
-    $("modeBadge").style.color =
-      health.api_configured &&
-      !health.demo_mode
-        ? "var(--green)"
-        : "var(--amber)";
-
-    const data = await getJSON(
-      "/api/fixtures/today"
-    );
-
-    showNotice(
-      data.message || ""
-    );
-
-    renderFixtures(
-      data.fixtures || []
-    );
-
-    $("todayLabel").textContent =
-      new Intl.DateTimeFormat(
-        "pt-BR",
-        {
-          dateStyle: "full"
-        }
-      ).format(
-        new Date()
-      );
-
-  } catch (error) {
-
-    fixturesEl.innerHTML = `
-      <div class="card empty error">
-        ${error.message}
-      </div>
-    `;
-  }
-}
-
-
-function setBigTeam(
-  prefix,
-  team
-) {
-  $(`${prefix}Name`).textContent =
-    team.name;
-
-  const img =
-    $(`${prefix}Logo`);
-
-  const fallback =
-    $(`${prefix}Fallback`);
-
-  if (team.logo) {
-
-    img.src = team.logo;
-
-    img.classList.remove(
-      "hidden"
-    );
-
-    fallback.classList.add(
-      "hidden"
-    );
-
-  } else {
-
-    img.classList.add(
-      "hidden"
-    );
-
-    fallback.classList.remove(
-      "hidden"
-    );
-
-    fallback.textContent =
-      initials(team.name);
-  }
-}
-
-
-async function openAnalysis(fixture) {
-  currentFixture = fixture;
-
-  fixturesEl.classList.add(
-    "hidden"
-  );
-
-  document
-    .querySelector(".intro")
-    .classList.add("hidden");
-
-  showNotice("");
-
-  analysisPanel.classList.remove(
-    "hidden"
-  );
-
-  setBigTeam(
-    "home",
-    fixture.home
-  );
-
-  setBigTeam(
-    "away",
-    fixture.away
-  );
-
-  await loadAnalysis();
-
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
-}
-
-
-function lineColor(rate) {
-  if (rate === null) {
-    return "var(--muted)";
-  }
-
-  if (rate >= 90) {
-    return "var(--green)";
-  }
-
-  if (rate >= 80) {
-    return "var(--amber)";
-  }
-
-  return "var(--muted)";
-}
-
-
-function strengthLabel(rate) {
-  if (rate >= 90) {
-    return "Muito forte";
-  }
-
-  if (rate >= 80) {
-    return "Forte";
-  }
-
-  return "";
-}
-
-
-function renderTeamLines(
-  teamName,
-  lines
-) {
-  if (!lines || !lines.length) {
-    return `
-      <div class="safe-box">
-        <strong>${teamName}</strong>
-        <p>Sem dados suficientes.</p>
-      </div>
-    `;
-  }
-
-  return `
-    <div
-      class="safe-box"
-      style="margin-bottom:14px"
-    >
-      <strong>
-        ${teamName}
-      </strong>
-
-      <div
-        style="
-          display:grid;
-          gap:10px;
-          margin-top:12px;
-        "
-      >
-        ${lines.map(line => {
-
-          if (
-            line.rate === null ||
-            !line.games
-          ) {
-            return `
-              <div
-                style="
-                  padding:10px 0;
-                  border-bottom:
-                  1px solid
-                  rgba(255,255,255,.07);
-                "
-              >
-                <div
-                  style="
-                    display:flex;
-                    justify-content:
-                    space-between;
-                    gap:12px;
-                  "
-                >
-                  <span>
-                    ${line.label}
-                  </span>
-
-                  <strong>
-                    Sem dados
-                  </strong>
-                </div>
-              </div>
-            `;
-          }
-
-          return `
-            <div
-              style="
-                padding:10px 0;
-                border-bottom:
-                1px solid
-                rgba(255,255,255,.07);
-              "
-            >
-              <div
-                style="
-                  display:flex;
-                  justify-content:
-                  space-between;
-                  gap:12px;
-                  align-items:center;
-                "
-              >
-                <span>
-                  ${line.label}
-                </span>
-
-                <strong
-                  style="
-                    color:
-                    ${lineColor(line.rate)}
-                  "
-                >
-                  ${line.rate}%
-                </strong>
-              </div>
-
-              <small
-                style="
-                  display:block;
-                  margin-top:4px;
-                  opacity:.75;
-                "
-              >
-                Bateu ${line.hits}
-                de ${line.games} jogos
-              </small>
-            </div>
-          `;
-
-        }).join("")}
-      </div>
-    </div>
-  `;
-}
-
-
-function getBestOpportunities(data) {
-  const homeName =
-    data.home?.name ||
-    currentFixture.home.name;
-
-  const awayName =
-    data.away?.name ||
-    currentFixture.away.name;
-
-  const homeLines =
-    data.lines?.home || [];
-
-  const awayLines =
-    data.lines?.away || [];
-
-  const all = [];
-
-  homeLines.forEach(line => {
-    if (
-      line.rate !== null &&
-      line.games &&
-      line.rate >= 80
-    ) {
-      all.push({
-        team: homeName,
-        label: line.label,
-        rate: line.rate,
-        hits: line.hits,
-        games: line.games
-      });
-    }
-  });
-
-  awayLines.forEach(line => {
-    if (
-      line.rate !== null &&
-      line.games &&
-      line.rate >= 80
-    ) {
-      all.push({
-        team: awayName,
-        label: line.label,
-        rate: line.rate,
-        hits: line.hits,
-        games: line.games
-      });
-    }
-  });
-
-  all.sort((a, b) => {
-    if (b.rate !== a.rate) {
-      return b.rate - a.rate;
-    }
-
-    if (b.games !== a.games) {
-      return b.games - a.games;
-    }
-
-    return b.hits - a.hits;
-  });
-
-  return all;
-}
-
-
-function renderBestOpportunities(data) {
-  let container =
-    $("bestOpportunities");
-
-  if (!container) {
-    const statsCard =
-      analysisPanel
-        .querySelectorAll(".card")[1];
-
-    if (!statsCard) {
-      return;
-    }
-
-    const box =
-      document.createElement("div");
-
-    box.className = "card";
-    box.id = "bestOpportunitiesCard";
-
-    box.style.marginTop = "16px";
-
-    box.innerHTML = `
-      <div class="section-head">
-        <h2>
-          Melhores oportunidades
-        </h2>
-
-        <span>
-          80%+
-        </span>
-      </div>
-
-      <p
-        class="muted"
-        style="
-          margin-top:0;
-          margin-bottom:16px;
-        "
-      >
-        Linhas com maior frequência
-        no histórico analisado.
-      </p>
-
-      <div id="bestOpportunities"></div>
-    `;
-
-    statsCard.insertAdjacentElement(
-      "afterend",
-      box
-    );
-
-    container =
-      $("bestOpportunities");
-  }
-
-  const opportunities =
-    getBestOpportunities(data);
-
-  if (!opportunities.length) {
-    container.innerHTML = `
-      <div class="safe-box">
-        Nenhuma linha atingiu 80%
-        neste recorte.
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML =
-    opportunities
-      .map((item, index) => `
-        <div
-          class="safe-box"
-          style="
-            margin-bottom:12px;
-          "
-        >
-          <div
-            style="
-              display:flex;
-              justify-content:
-              space-between;
-              gap:12px;
-              align-items:flex-start;
-            "
-          >
-            <div>
-              <div
-                style="
-                  font-size:12px;
-                  opacity:.7;
-                  margin-bottom:4px;
-                "
-              >
-                ${index + 1}. ${item.team}
-              </div>
-
-              <strong>
-                ${item.label}
-              </strong>
-            </div>
-
-            <div
-              style="
-                text-align:right;
-              "
-            >
-              <strong
-                style="
-                  color:
-                  ${lineColor(item.rate)};
-                  font-size:18px;
-                "
-              >
-                ${item.rate}%
-              </strong>
-
-              <small
-                style="
-                  display:block;
-                  margin-top:2px;
-                  opacity:.8;
-                "
-              >
-                ${strengthLabel(item.rate)}
-              </small>
-            </div>
-          </div>
-
-          <small
-            style="
-              display:block;
-              margin-top:8px;
-              opacity:.75;
-            "
-          >
-            Bateu ${item.hits}
-            de ${item.games} jogos
-          </small>
-        </div>
-      `)
-      .join("");
-}
-
-
-function renderLines(data) {
-  let linesContainer =
-    $("linesResults");
-
-  const homeUsed =
-    data.home?.matches_used ??
-    currentSample;
-
-  const awayUsed =
-    data.away?.matches_used ??
-    currentSample;
-
-  const realSample =
-    Math.min(
-      homeUsed,
-      awayUsed
-    );
-
-  if (!linesContainer) {
-
-    const cards =
-      analysisPanel
-        .querySelectorAll(".card");
-
-    const automaticSection =
-      cards[cards.length - 1];
-
-    if (!automaticSection) {
-      return;
-    }
-
-    automaticSection.innerHTML = `
-      <div class="section-head">
-        <h2>
-          Histórico das linhas
-        </h2>
-
-        <span id="linesSampleInfo">
-          ${realSample} jogos encontrados
-        </span>
-      </div>
-
-      <p
-        class="muted"
-        style="
-          margin-top:0;
-          margin-bottom:16px;
-        "
-      >
-        Quantas vezes cada linha
-        aconteceu nos jogos
-        analisados.
-      </p>
-
-      <div id="linesResults"></div>
-    `;
-
-    linesContainer =
-      $("linesResults");
-
-  } else {
-
-    const sampleInfo =
-      $("linesSampleInfo");
-
-    if (sampleInfo) {
-      sampleInfo.textContent =
-        `${realSample} jogos encontrados`;
-    }
-  }
-
-  const homeLines =
-    data.lines?.home || [];
-
-  const awayLines =
-    data.lines?.away || [];
-
-  linesContainer.innerHTML = `
-    ${renderTeamLines(
-      data.home?.name ||
-      currentFixture.home.name,
-      homeLines
-    )}
-
-    ${renderTeamLines(
-      data.away?.name ||
-      currentFixture.away.name,
-      awayLines
-    )}
-  `;
-}
-
-
-async function loadAnalysis() {
-  $("statsList").innerHTML = `
-    <div class="loader">
-      Calculando estatísticas...
-    </div>
-  `;
-
-  try {
-
-    const data = await getJSON(
-      `/api/analysis/${currentFixture.id}?sample=${currentSample}`
-    );
-
-    $("sourceLabel").textContent =
-      data.source || "Fonte";
-
-    const homeUsed =
-      data.home?.matches_used;
-
-    const awayUsed =
-      data.away?.matches_used;
-
-    if (
-      homeUsed !== undefined &&
-      awayUsed !== undefined
-    ) {
-      $("sampleInfo").textContent =
-        `${homeUsed} casa • ${awayUsed} fora`;
-    } else {
-      $("sampleInfo").textContent =
-        `${data.sample_size || currentSample} jogos usados`;
-    }
-
-    $("statsList").innerHTML =
-      (data.stats || [])
-        .map(s => `
-          <div class="stat-row">
-
-            <div class="stat-value">
-              ${formatStat(s.home)}
-            </div>
-
-            <div class="stat-label">
-              ${s.label}
-            </div>
-
-            <div class="stat-value">
-              ${formatStat(s.away)}
-            </div>
-
-          </div>
-        `)
-        .join("") ||
-      `
-        <div class="empty">
-          Sem estatísticas disponíveis.
-        </div>
-      `;
-
-    renderBestOpportunities(data);
-
-    renderLines(data);
-
-  } catch (error) {
-
-    $("statsList").innerHTML = `
-      <div class="empty error">
-        ${error.message}
-      </div>
-    `;
-  }
-}
-
-
-$("refreshBtn")
-  .addEventListener(
-    "click",
-    loadFixtures
-  );
-
-
-$("backBtn")
-  .addEventListener(
-    "click",
-    () => {
-
-      currentFixture = null;
-
-      analysisPanel.classList.add(
-        "hidden"
-      );
-
-      document
-        .querySelector(".intro")
-        .classList.remove(
-          "hidden"
-        );
-
-      fixturesEl.classList.remove(
-        "hidden"
-      );
-    }
-  );
-
-
-document
-  .querySelectorAll(".tab")
-  .forEach(btn => {
-
-    btn.addEventListener(
-      "click",
-      async () => {
-
-        currentSample =
-          Number(
-            btn.dataset.sample
-          );
-
-        document
-          .querySelectorAll(".tab")
-          .forEach(b =>
-            b.classList.toggle(
-              "active",
-              b === btn
+from flask import Flask, jsonify, request, send_from_directory
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import os
+import requests
+
+app = Flask(__name__, static_folder="static")
+
+API_KEY = os.getenv("PITCHAPI_KEY", "").strip()
+API_BASE = "https://api.pitchapi.dev"
+TIMEZONE = "America/Sao_Paulo"
+
+
+# =========================================================
+# API
+# =========================================================
+
+def api_get(path):
+    if not API_KEY:
+        raise RuntimeError("PITCHAPI_KEY não configurada.")
+
+    url = API_BASE + "/" + path.lstrip("/")
+
+    response = requests.get(
+        url,
+        headers={
+            "X-API-KEY": API_KEY,
+            "Accept": "application/json"
+        },
+        timeout=30
+    )
+
+    try:
+        body = response.json()
+    except Exception:
+        raise RuntimeError(
+            f"Resposta inválida da API. HTTP {response.status_code}"
+        )
+
+    if not response.ok:
+        raise RuntimeError(str(body))
+
+    if isinstance(body, dict) and "data" in body:
+        return body["data"]
+
+    return body
+
+
+# =========================================================
+# AUXILIARES
+# =========================================================
+
+def number(value):
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+
+    if not text:
+        return None
+
+    text = text.split(" ")[0]
+    text = text.replace("%", "")
+    text = text.replace(",", ".")
+
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def average(values):
+    valid = [
+        float(v)
+        for v in values
+        if v is not None
+    ]
+
+    if not valid:
+        return None
+
+    return round(
+        sum(valid) / len(valid),
+        2
+    )
+
+
+def match_time(value):
+    if not value:
+        return ""
+
+    try:
+        dt = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+        dt = dt.astimezone(
+            ZoneInfo(TIMEZONE)
+        )
+
+        return dt.strftime("%H:%M")
+
+    except Exception:
+        return ""
+
+
+def normalize_name(value):
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+
+# =========================================================
+# NORMALIZAR PARTIDA
+# =========================================================
+
+def normalize_match(match):
+    league = match.get("league") or {}
+    home = match.get("home_team") or {}
+    away = match.get("away_team") or {}
+
+    return {
+        "id": match.get("id"),
+
+        "league": league.get(
+            "name",
+            "Competição"
+        ),
+
+        "league_id": league.get("id"),
+
+        "league_logo": league.get(
+            "image_url",
+            ""
+        ),
+
+        "time": match_time(
+            match.get("time_utc")
+        ),
+
+        "status": match.get(
+            "status",
+            ""
+        ),
+
+        "home": {
+            "id": home.get("id"),
+            "name": home.get(
+                "name",
+                "Mandante"
+            ),
+            "logo": home.get(
+                "image_url",
+                ""
             )
-          );
+        },
 
-        if (currentFixture) {
-          await loadAnalysis();
+        "away": {
+            "id": away.get("id"),
+            "name": away.get(
+                "name",
+                "Visitante"
+            ),
+            "logo": away.get(
+                "image_url",
+                ""
+            )
+        },
+
+        "demo": False
+    }
+
+
+# =========================================================
+# ESTATÍSTICAS OFICIAIS
+# =========================================================
+
+def get_stats(match_id):
+    try:
+        data = api_get(
+            f"v1/matches/{match_id}/stats"
+        )
+    except Exception:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    result = []
+
+    for period in data.get("periods") or []:
+
+        period_name = str(
+            period.get("period", "")
+        ).strip().lower()
+
+        if period_name != "all":
+            continue
+
+        for group in period.get("groups") or []:
+
+            for item in group.get("items") or []:
+
+                result.append({
+                    "key": str(
+                        item.get("key", "")
+                    ).strip().lower(),
+
+                    "title": str(
+                        item.get("title", "")
+                    ).strip().lower(),
+
+                    "home": number(
+                        item.get("home")
+                    ),
+
+                    "away": number(
+                        item.get("away")
+                    )
+                })
+
+    return result
+
+
+def find_exact_stat(
+    stats,
+    names,
+    home_side
+):
+    wanted = {
+        normalize_name(name)
+        for name in names
+    }
+
+    for item in stats:
+
+        key = normalize_name(
+            item.get("key")
+        )
+
+        title = normalize_name(
+            item.get("title")
+        )
+
+        if key in wanted or title in wanted:
+
+            if home_side:
+                return item.get("home")
+
+            return item.get("away")
+
+    return None
+
+
+# =========================================================
+# FINALIZAÇÕES
+# =========================================================
+
+def shot_events(match_id, team_id):
+    try:
+        data = api_get(
+            f"v1/matches/{match_id}/shots"
+        )
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    periods = data.get("periods")
+
+    if periods is None:
+        return None
+
+    total = 0
+    found = False
+
+    for period in periods:
+
+        for shot in period.get("shots") or []:
+
+            if shot.get("team_id") != team_id:
+                continue
+
+            found = True
+            total += 1
+
+    if not found:
+        return None
+
+    return float(total)
+
+
+# =========================================================
+# CHUTES NO GOL
+# =========================================================
+
+def sot_from_shots(match_id, team_id):
+    try:
+        data = api_get(
+            f"v1/matches/{match_id}/shots"
+        )
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    periods = data.get("periods")
+
+    if periods is None:
+        return None
+
+    total = 0
+    found = False
+
+    for period in periods:
+
+        for shot in period.get("shots") or []:
+
+            if shot.get("team_id") != team_id:
+                continue
+
+            found = True
+
+            event_type = (
+                str(
+                    shot.get(
+                        "event_type",
+                        ""
+                    )
+                )
+                .strip()
+                .lower()
+                .replace("_", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+
+            if event_type in (
+                "goal",
+                "attemptsaved"
+            ):
+                total += 1
+
+    if not found:
+        return None
+
+    return float(total)
+
+
+# =========================================================
+# CARTÕES
+# =========================================================
+
+def get_cards(match_id, team_id):
+    try:
+        data = api_get(
+            f"v1/matches/{match_id}/events"
+        )
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    events = data.get("events")
+
+    if events is None:
+        return None
+
+    total = 0
+
+    for event in events:
+
+        if event.get("team_id") != team_id:
+            continue
+
+        event_type = (
+            str(
+                event.get(
+                    "event_type",
+                    ""
+                )
+            )
+            .strip()
+            .lower()
+            .replace("_", "")
+            .replace(" ", "")
+            .replace("-", "")
+        )
+
+        if event_type in (
+            "yellowcard",
+            "redcard"
+        ):
+            total += 1
+
+    return float(total)
+
+
+# =========================================================
+# ÚLTIMOS JOGOS
+#
+# venue = "home" -> somente jogos em casa
+# venue = "away" -> somente jogos fora
+# =========================================================
+
+def recent_matches(
+    league_id,
+    team_id,
+    current_id,
+    limit,
+    venue
+):
+    try:
+        data = api_get(
+            f"v1/leagues/{league_id}/matches"
+        )
+    except Exception:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    result = []
+
+    for match in data.get("matches") or []:
+
+        if match.get("id") == current_id:
+            continue
+
+        home = match.get(
+            "home_team"
+        ) or {}
+
+        away = match.get(
+            "away_team"
+        ) or {}
+
+        # ==========================================
+        # FILTRO REAL CASA / FORA
+        # ==========================================
+
+        if venue == "home":
+
+            if home.get("id") != team_id:
+                continue
+
+        elif venue == "away":
+
+            if away.get("id") != team_id:
+                continue
+
+        else:
+
+            if (
+                home.get("id") != team_id
+                and away.get("id") != team_id
+            ):
+                continue
+
+        status = (
+            str(
+                match.get(
+                    "status",
+                    ""
+                )
+            )
+            .strip()
+            .lower()
+        )
+
+        if status not in (
+            "finished",
+            "complete",
+            "completed",
+            "ft",
+            "full_time",
+            "full time"
+        ):
+            continue
+
+        result.append(match)
+
+    result.sort(
+        key=lambda x: (
+            x.get("time_utc")
+            or x.get("date")
+            or ""
+        ),
+        reverse=True
+    )
+
+    return result[:limit]
+
+
+# =========================================================
+# DADOS DE UMA PARTIDA
+# =========================================================
+
+def team_match_values(match, team_id):
+    match_id = match.get("id")
+
+    home = match.get(
+        "home_team"
+    ) or {}
+
+    home_side = (
+        home.get("id") == team_id
+    )
+
+    if home_side:
+        goals = number(
+            match.get("score_home")
+        )
+    else:
+        goals = number(
+            match.get("score_away")
+        )
+
+    stats = get_stats(match_id)
+
+    corners = find_exact_stat(
+        stats,
+        [
+            "corners",
+            "corner_kicks",
+            "corner kicks"
+        ],
+        home_side
+    )
+
+    fouls = find_exact_stat(
+        stats,
+        [
+            "fouls",
+            "fouls_committed",
+            "fouls committed"
+        ],
+        home_side
+    )
+
+    shots = find_exact_stat(
+        stats,
+        [
+            "shots",
+            "total_shots",
+            "total shots"
+        ],
+        home_side
+    )
+
+    if shots is None:
+        shots = shot_events(
+            match_id,
+            team_id
+        )
+
+    sot = find_exact_stat(
+        stats,
+        [
+            "shots_on_target",
+            "shots on target"
+        ],
+        home_side
+    )
+
+    if sot is None:
+        sot = sot_from_shots(
+            match_id,
+            team_id
+        )
+
+    cards = get_cards(
+        match_id,
+        team_id
+    )
+
+    return {
+        "goals": goals,
+        "corners": corners,
+        "shots": shots,
+        "sot": sot,
+        "cards": cards,
+        "fouls": fouls
+    }
+
+
+# =========================================================
+# MÉDIA DO TIME
+# =========================================================
+
+def team_average(
+    league_id,
+    team_id,
+    current_id,
+    limit,
+    venue
+):
+    matches = recent_matches(
+        league_id,
+        team_id,
+        current_id,
+        limit,
+        venue
+    )
+
+    values = {
+        "goals": [],
+        "corners": [],
+        "shots": [],
+        "sot": [],
+        "cards": [],
+        "fouls": []
+    }
+
+    history = []
+
+    for match in matches:
+
+        row = team_match_values(
+            match,
+            team_id
+        )
+
+        for key in values:
+            values[key].append(
+                row.get(key)
+            )
+
+        home = match.get(
+            "home_team"
+        ) or {}
+
+        away = match.get(
+            "away_team"
+        ) or {}
+
+        history.append({
+            "match_id": match.get("id"),
+
+            "home": home.get(
+                "name",
+                ""
+            ),
+
+            "away": away.get(
+                "name",
+                ""
+            ),
+
+            "values": row
+        })
+
+    return {
+        "matches_used": len(matches),
+
+        "venue": venue,
+
+        "averages": {
+            key: average(value)
+            for key, value
+            in values.items()
+        },
+
+        "coverage": {
+            key: len([
+                x
+                for x in value
+                if x is not None
+            ])
+            for key, value
+            in values.items()
+        },
+
+        "values": values,
+
+        "history": history
+    }
+
+
+# =========================================================
+# CONTAGEM DAS LINHAS
+# =========================================================
+
+def line_result(
+    values,
+    threshold
+):
+    valid = [
+        float(v)
+        for v in values
+        if v is not None
+    ]
+
+    if not valid:
+        return {
+            "line": threshold,
+            "hits": 0,
+            "games": 0,
+            "rate": None
         }
-      }
-    );
 
-  });
+    hits = sum(
+        1
+        for value in valid
+        if value > threshold
+    )
+
+    rate = round(
+        hits / len(valid) * 100,
+        1
+    )
+
+    return {
+        "line": threshold,
+        "hits": hits,
+        "games": len(valid),
+        "rate": rate
+    }
 
 
-loadFixtures();
+def build_lines(team_data):
+    values = team_data["values"]
+
+    return [
+        {
+            "label": "+0.5 Gols",
+            **line_result(
+                values["goals"],
+                0.5
+            )
+        },
+
+        {
+            "label": "+3.5 Escanteios",
+            **line_result(
+                values["corners"],
+                3.5
+            )
+        },
+
+        {
+            "label": "+4.5 Escanteios",
+            **line_result(
+                values["corners"],
+                4.5
+            )
+        },
+
+        {
+            "label": "+9.5 Finalizações",
+            **line_result(
+                values["shots"],
+                9.5
+            )
+        },
+
+        {
+            "label": "+12.5 Finalizações",
+            **line_result(
+                values["shots"],
+                12.5
+            )
+        },
+
+        {
+            "label": "+2.5 Chutes no gol",
+            **line_result(
+                values["sot"],
+                2.5
+            )
+        },
+
+        {
+            "label": "+3.5 Chutes no gol",
+            **line_result(
+                values["sot"],
+                3.5
+            )
+        },
+
+        {
+            "label": "+0.5 Cartões",
+            **line_result(
+                values["cards"],
+                0.5
+            )
+        },
+
+        {
+            "label": "+1.5 Cartões",
+            **line_result(
+                values["cards"],
+                1.5
+            )
+        },
+
+        {
+            "label": "+9.5 Faltas",
+            **line_result(
+                values["fouls"],
+                9.5
+            )
+        },
+
+        {
+            "label": "+10.5 Faltas",
+            **line_result(
+                values["fouls"],
+                10.5
+            )
+        }
+    ]
+
+
+# =========================================================
+# SITE
+# =========================================================
+
+@app.get("/")
+def index():
+    return send_from_directory(
+        "static",
+        "index.html"
+    )
+
+
+# =========================================================
+# HEALTH
+# =========================================================
+
+@app.get("/api/health")
+def health():
+    return jsonify({
+        "ok": True,
+        "provider": "PITCHAPI",
+        "api_configured": bool(API_KEY),
+        "demo_mode": False,
+        "timezone": TIMEZONE,
+        "version": "HOME-AWAY-V1"
+    })
+
+
+# =========================================================
+# PARTIDAS DE HOJE
+# =========================================================
+
+@app.get("/api/fixtures/today")
+def fixtures_today():
+    try:
+        today = datetime.now(
+            ZoneInfo(TIMEZONE)
+        ).strftime("%Y-%m-%d")
+
+        data = api_get(
+            f"v1/date/{today}"
+        )
+
+        matches = []
+
+        if isinstance(data, dict):
+            matches = data.get(
+                "matches"
+            ) or []
+
+        return jsonify({
+            "mode": "live",
+            "message": "",
+            "fixtures": [
+                normalize_match(match)
+                for match in matches
+            ]
+        })
+
+    except Exception as error:
+
+        return jsonify({
+            "mode": "error",
+            "message": str(error),
+            "fixtures": []
+        }), 502
+
+
+# =========================================================
+# ANÁLISE
+# =========================================================
+
+@app.get("/api/analysis/<fixture_id>")
+def analysis(fixture_id):
+
+    try:
+        sample = int(
+            request.args.get(
+                "sample",
+                10
+            )
+        )
+    except Exception:
+        sample = 10
+
+    if sample not in (
+        5,
+        10
+    ):
+        sample = 10
+
+    try:
+        fixture = api_get(
+            f"v1/matches/{fixture_id}"
+        )
+
+        if not isinstance(
+            fixture,
+            dict
+        ):
+            raise RuntimeError(
+                "Partida não encontrada."
+            )
+
+        league = fixture.get(
+            "league"
+        ) or {}
+
+        home = fixture.get(
+            "home_team"
+        ) or {}
+
+        away = fixture.get(
+            "away_team"
+        ) or {}
+
+        league_id = league.get("id")
+        home_id = home.get("id")
+        away_id = away.get("id")
+
+        # ==========================================
+        # MANDANTE = SOMENTE JOGOS EM CASA
+        # ==========================================
+
+        home_data = team_average(
+            league_id,
+            home_id,
+            fixture_id,
+            sample,
+            "home"
+        )
+
+        # ==========================================
+        # VISITANTE = SOMENTE JOGOS FORA
+        # ==========================================
+
+        away_data = team_average(
+            league_id,
+            away_id,
+            fixture_id,
+            sample,
+            "away"
+        )
+
+        h = home_data["averages"]
+        a = away_data["averages"]
+
+        return jsonify({
+            "source": "PITCHAPI",
+            "version": "HOME-AWAY-V1",
+            "sample_size": sample,
+
+            "home": {
+                "id": home_id,
+
+                "name": home.get(
+                    "name",
+                    "Mandante"
+                ),
+
+                "logo": home.get(
+                    "image_url",
+                    ""
+                ),
+
+                "venue": "home",
+
+                "matches_used":
+                    home_data[
+                        "matches_used"
+                    ],
+
+                "coverage":
+                    home_data[
+                        "coverage"
+                    ]
+            },
+
+            "away": {
+                "id": away_id,
+
+                "name": away.get(
+                    "name",
+                    "Visitante"
+                ),
+
+                "logo": away.get(
+                    "image_url",
+                    ""
+                ),
+
+                "venue": "away",
+
+                "matches_used":
+                    away_data[
+                        "matches_used"
+                    ],
+
+                "coverage":
+                    away_data[
+                        "coverage"
+                    ]
+            },
+
+            "stats": [
+                {
+                    "label": "Gols",
+                    "home": h["goals"],
+                    "away": a["goals"]
+                },
+
+                {
+                    "label": "Escanteios",
+                    "home": h["corners"],
+                    "away": a["corners"]
+                },
+
+                {
+                    "label": "Finalizações",
+                    "home": h["shots"],
+                    "away": a["shots"]
+                },
+
+                {
+                    "label": "Chutes no gol",
+                    "home": h["sot"],
+                    "away": a["sot"]
+                },
+
+                {
+                    "label": "Cartões",
+                    "home": h["cards"],
+                    "away": a["cards"]
+                },
+
+                {
+                    "label": "Faltas",
+                    "home": h["fouls"],
+                    "away": a["fouls"]
+                }
+            ],
+
+            "lines": {
+                "home": build_lines(
+                    home_data
+                ),
+
+                "away": build_lines(
+                    away_data
+                )
+            }
+        })
+
+    except Exception as error:
+
+        return jsonify({
+            "source": "PITCHAPI",
+            "version": "HOME-AWAY-V1",
+            "sample_size": sample,
+            "stats": [],
+            "lines": {},
+            "error": str(error)
+        }), 502
+
+
+# =========================================================
+# LINHAS
+# =========================================================
+
+@app.get("/api/lines/<fixture_id>")
+def lines(fixture_id):
+
+    try:
+        sample = int(
+            request.args.get(
+                "sample",
+                10
+            )
+        )
+    except Exception:
+        sample = 10
+
+    if sample not in (
+        5,
+        10
+    ):
+        sample = 10
+
+    try:
+        fixture = api_get(
+            f"v1/matches/{fixture_id}"
+        )
+
+        league = fixture.get(
+            "league"
+        ) or {}
+
+        home = fixture.get(
+            "home_team"
+        ) or {}
+
+        away = fixture.get(
+            "away_team"
+        ) or {}
+
+        league_id = league.get("id")
+
+        home_data = team_average(
+            league_id,
+            home.get("id"),
+            fixture_id,
+            sample,
+            "home"
+        )
+
+        away_data = team_average(
+            league_id,
+            away.get("id"),
+            fixture_id,
+            sample,
+            "away"
+        )
+
+        return jsonify({
+            "sample_size": sample,
+
+            "home": {
+                "name": home.get(
+                    "name",
+                    "Mandante"
+                ),
+
+                "venue": "home",
+
+                "matches_used":
+                    home_data[
+                        "matches_used"
+                    ],
+
+                "lines": build_lines(
+                    home_data
+                )
+            },
+
+            "away": {
+                "name": away.get(
+                    "name",
+                    "Visitante"
+                ),
+
+                "venue": "away",
+
+                "matches_used":
+                    away_data[
+                        "matches_used"
+                    ],
+
+                "lines": build_lines(
+                    away_data
+                )
+            }
+        })
+
+    except Exception as error:
+
+        return jsonify({
+            "error": str(error)
+        }), 502
+
+
+# =========================================================
+# START
+# =========================================================
+
+if __name__ == "__main__":
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "5000"
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
