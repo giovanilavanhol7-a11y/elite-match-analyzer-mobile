@@ -416,6 +416,20 @@ function renderLines(data) {
   let linesContainer =
     $("linesResults");
 
+  const homeUsed =
+    data.home?.matches_used ??
+    currentSample;
+
+  const awayUsed =
+    data.away?.matches_used ??
+    currentSample;
+
+  const realSample =
+    Math.min(
+      homeUsed,
+      awayUsed
+    );
+
   if (!linesContainer) {
 
     const automaticSection =
@@ -434,8 +448,8 @@ function renderLines(data) {
           Histórico das linhas
         </h2>
 
-        <span>
-          Últimos ${currentSample}
+        <span id="linesSampleInfo">
+          ${realSample} jogos encontrados
         </span>
       </div>
 
@@ -456,6 +470,16 @@ function renderLines(data) {
 
     linesContainer =
       $("linesResults");
+
+  } else {
+
+    const sampleInfo =
+      $("linesSampleInfo");
+
+    if (sampleInfo) {
+      sampleInfo.textContent =
+        `${realSample} jogos encontrados`;
+    }
   }
 
   const homeLines =
