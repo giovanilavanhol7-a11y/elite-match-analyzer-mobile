@@ -127,20 +127,15 @@ function renderFixtures(items) {
   document
     .querySelectorAll(".fixture")
     .forEach(btn => {
+      btn.addEventListener("click", () => {
+        const item = items.find(
+          x =>
+            String(x.id) ===
+            btn.dataset.id
+        );
 
-      btn.addEventListener(
-        "click",
-        () => {
-          const item = items.find(
-            x =>
-              String(x.id) ===
-              btn.dataset.id
-          );
-
-          openAnalysis(item);
-        }
-      );
-
+        openAnalysis(item);
+      });
     });
 }
 
@@ -284,15 +279,28 @@ function lineColor(rate) {
     return "var(--muted)";
   }
 
-  if (rate >= 80) {
+  if (rate >= 90) {
     return "var(--green)";
   }
 
-  if (rate >= 60) {
+  if (rate >= 80) {
     return "var(--amber)";
   }
 
   return "var(--muted)";
+}
+
+
+function strengthLabel(rate) {
+  if (rate >= 90) {
+    return "Muito forte";
+  }
+
+  if (rate >= 80) {
+    return "Forte";
+  }
+
+  return "";
 }
 
 
@@ -412,6 +420,216 @@ function renderTeamLines(
 }
 
 
+function getBestOpportunities(data) {
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+  const homeLines =
+    data.lines?.home || [];
+
+  const awayLines =
+    data.lines?.away || [];
+
+  const all = [];
+
+  homeLines.forEach(line => {
+    if (
+      line.rate !== null &&
+      line.games &&
+      line.rate >= 80
+    ) {
+      all.push({
+        team: homeName,
+        label: line.label,
+        rate: line.rate,
+        hits: line.hits,
+        games: line.games
+      });
+    }
+  });
+
+  awayLines.forEach(line => {
+    if (
+      line.rate !== null &&
+      line.games &&
+      line.rate >= 80
+    ) {
+      all.push({
+        team: awayName,
+        label: line.label,
+        rate: line.rate,
+        hits: line.hits,
+        games: line.games
+      });
+    }
+  });
+
+  all.sort((a, b) => {
+    if (b.rate !== a.rate) {
+      return b.rate - a.rate;
+    }
+
+    if (b.games !== a.games) {
+      return b.games - a.games;
+    }
+
+    return b.hits - a.hits;
+  });
+
+  return all;
+}
+
+
+function renderBestOpportunities(data) {
+  let container =
+    $("bestOpportunities");
+
+  if (!container) {
+    const statsCard =
+      analysisPanel
+        .querySelectorAll(".card")[1];
+
+    if (!statsCard) {
+      return;
+    }
+
+    const box =
+      document.createElement("div");
+
+    box.className = "card";
+    box.id = "bestOpportunitiesCard";
+
+    box.style.marginTop = "16px";
+
+    box.innerHTML = `
+      <div class="section-head">
+        <h2>
+          Melhores oportunidades
+        </h2>
+
+        <span>
+          80%+
+        </span>
+      </div>
+
+      <p
+        class="muted"
+        style="
+          margin-top:0;
+          margin-bottom:16px;
+        "
+      >
+        Linhas com maior frequência
+        no histórico analisado.
+      </p>
+
+      <div id="bestOpportunities"></div>
+    `;
+
+    statsCard.insertAdjacentElement(
+      "afterend",
+      box
+    );
+
+    container =
+      $("bestOpportunities");
+  }
+
+  const opportunities =
+    getBestOpportunities(data);
+
+  if (!opportunities.length) {
+    container.innerHTML = `
+      <div class="safe-box">
+        Nenhuma linha atingiu 80%
+        neste recorte.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML =
+    opportunities
+      .map((item, index) => `
+        <div
+          class="safe-box"
+          style="
+            margin-bottom:12px;
+          "
+        >
+          <div
+            style="
+              display:flex;
+              justify-content:
+              space-between;
+              gap:12px;
+              align-items:flex-start;
+            "
+          >
+            <div>
+              <div
+                style="
+                  font-size:12px;
+                  opacity:.7;
+                  margin-bottom:4px;
+                "
+              >
+                ${index + 1}. ${item.team}
+              </div>
+
+              <strong>
+                ${item.label}
+              </strong>
+            </div>
+
+            <div
+              style="
+                text-align:right;
+              "
+            >
+              <strong
+                style="
+                  color:
+                  ${lineColor(item.rate)};
+                  font-size:18px;
+                "
+              >
+                ${item.rate}%
+              </strong>
+
+              <small
+                style="
+                  display:block;
+                  margin-top:2px;
+                  opacity:.8;
+                "
+              >
+                ${strengthLabel(item.rate)}
+              </small>
+            </div>
+          </div>
+
+          <small
+            style="
+              display:block;
+              margin-top:8px;
+              opacity:.75;
+            "
+          >
+            Bateu ${item.hits}
+            de ${item.games} jogos
+          </small>
+        </div>
+      `)
+      .join("");
+}
+
+
 function renderLines(data) {
   let linesContainer =
     $("linesResults");
@@ -432,11 +650,12 @@ function renderLines(data) {
 
   if (!linesContainer) {
 
-    const automaticSection =
+    const cards =
       analysisPanel
-        .querySelectorAll(
-          ".card"
-        )[2];
+        .querySelectorAll(".card");
+
+    const automaticSection =
+      cards[cards.length - 1];
 
     if (!automaticSection) {
       return;
@@ -562,6 +781,8 @@ async function loadAnalysis() {
           Sem estatísticas disponíveis.
         </div>
       `;
+
+    renderBestOpportunities(data);
 
     renderLines(data);
 
