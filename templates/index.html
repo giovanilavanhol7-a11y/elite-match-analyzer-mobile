@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#090d12">
+  <title>Elite Match Analyzer Mobile</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="app">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">FUTEBOL • MOBILE</p>
+      <h1>Elite Match Analyzer</h1>
+    </div>
+    <div id="modeBadge" class="mode">...</div>
+  </header>
+
+  <section class="card intro">
+    <div>
+      <h2>Jogos de hoje</h2>
+      <p id="todayLabel" class="muted">Carregando partidas...</p>
+    </div>
+    <button id="refreshBtn" class="icon-btn" aria-label="Atualizar">↻</button>
+  </section>
+
+  <div id="notice" class="notice hidden"></div>
+  <section id="fixtures" class="fixtures" aria-live="polite"></section>
+
+  <section id="analysisPanel" class="hidden">
+    <div class="back-row">
+      <button id="backBtn" class="back-btn">← Voltar aos jogos</button>
+    </div>
+
+    <section class="card match-card">
+      <div class="team-block">
+        <img id="homeLogo" class="team-logo hidden" alt="">
+        <div id="homeFallback" class="team-fallback">M</div>
+        <strong id="homeName">Mandante</strong>
+        <span>Mandante</span>
+      </div>
+      <div class="vs">
+        <b>VS</b>
+        <small id="sourceLabel">Fonte</small>
+      </div>
+      <div class="team-block">
+        <img id="awayLogo" class="team-logo hidden" alt="">
+        <div id="awayFallback" class="team-fallback">V</div>
+        <strong id="awayName">Visitante</strong>
+        <span>Visitante</span>
+      </div>
+    </section>
+
+    <div class="tabs">
+      <button class="tab active" data-sample="10">Últimos 10</button>
+      <button class="tab" data-sample="5">Últimos 5</button>
+    </div>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Estatísticas</h2>
+        <span id="sampleInfo">—</span>
+      </div>
+      <div class="head-row">
+        <span>Casa</span><span>Métrica</span><span>Fora</span>
+      </div>
+      <div id="statsList"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Análise automática</h2>
+        <span>Em validação</span>
+      </div>
+      <div class="safe-box">
+        <strong>Sem palpites inventados</strong>
+        <p>Primeiro validamos se gols, escanteios, finalizações, chutes no gol, cartões e faltas estão chegando corretamente. Só depois o sistema libera as linhas sugeridas.</p>
+      </div>
+    </section>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
