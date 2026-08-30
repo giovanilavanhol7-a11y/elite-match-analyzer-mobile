@@ -20,69 +20,11 @@ DEMO_FIXTURES = [
         "league_logo": "",
         "time": "16:00",
         "status": "NS",
-        "home": {
-            "id": 1,
-            "name": "Flamengo",
-            "logo": ""
-        },
-        "away": {
-            "id": 2,
-            "name": "Palmeiras",
-            "logo": ""
-        },
+        "home": {"id": 1, "name": "Flamengo", "logo": ""},
+        "away": {"id": 2, "name": "Palmeiras", "logo": ""},
         "demo": True,
-    },
-    {
-        "id": 1002,
-        "league": "Premier League",
-        "league_logo": "",
-        "time": "18:30",
-        "status": "NS",
-        "home": {
-            "id": 3,
-            "name": "Manchester City",
-            "logo": ""
-        },
-        "away": {
-            "id": 4,
-            "name": "Liverpool",
-            "logo": ""
-        },
-        "demo": True,
-    },
+    }
 ]
-
-
-DEMO_ANALYSIS = {
-    1001: {
-        "source": "DEMO",
-        "sample_size": 10,
-        "home": "Flamengo",
-        "away": "Palmeiras",
-        "stats": [
-            {"key": "goals", "label": "Gols", "home": 1.8, "away": 1.5},
-            {"key": "corners", "label": "Escanteios", "home": 6.1, "away": 5.4},
-            {"key": "shots", "label": "Finalizações", "home": 15.2, "away": 13.7},
-            {"key": "sot", "label": "Chutes no gol", "home": 5.8, "away": 4.9},
-            {"key": "cards", "label": "Cartões", "home": 2.4, "away": 2.8},
-            {"key": "fouls", "label": "Faltas", "home": 12.3, "away": 14.1},
-        ],
-    },
-    1002: {
-        "source": "DEMO",
-        "sample_size": 10,
-        "home": "Manchester City",
-        "away": "Liverpool",
-        "stats": [
-            {"key": "goals", "label": "Gols", "home": 2.2, "away": 2.0},
-            {"key": "corners", "label": "Escanteios", "home": 7.0, "away": 6.3},
-            {"key": "shots", "label": "Finalizações", "home": 17.1, "away": 16.2},
-            {"key": "sot", "label": "Chutes no gol", "home": 6.6, "away": 6.1},
-            {"key": "cards", "label": "Cartões", "home": 1.7, "away": 2.1},
-            {"key": "fouls", "label": "Faltas", "home": 9.8, "away": 10.7},
-        ],
-    },
-}
 
 
 def api_get(path, params=None):
@@ -94,11 +36,7 @@ def api_get(path, params=None):
 
     url = f"{API_BASE}/{path.lstrip('/')}"
 
-    response = requests.get(
-        url,
-        params=query,
-        timeout=25
-    )
+    response = requests.get(url, params=query, timeout=25)
 
     try:
         body = response.json()
@@ -113,10 +51,7 @@ def api_get(path, params=None):
             or body.get("error")
             or str(body)
         )
-
-        raise RuntimeError(
-            f"Sportmonks: {message}"
-        )
+        raise RuntimeError(f"Sportmonks: {message}")
 
     return body.get("data")
 
@@ -145,16 +80,11 @@ def local_fixture_time(starting_at):
             dt = dt.replace(tzinfo=timezone.utc)
 
         dt = dt.astimezone(ZoneInfo(TZ_NAME))
-
         return dt.strftime("%H:%M")
 
     except Exception:
         text = str(starting_at)
-
-        if len(text) >= 16:
-            return text[11:16]
-
-        return ""
+        return text[11:16] if len(text) >= 16 else ""
 
 
 def get_home_away(participants):
@@ -167,7 +97,6 @@ def get_home_away(participants):
 
         if location == "home":
             home = team
-
         elif location == "away":
             away = team
 
@@ -182,7 +111,6 @@ def get_home_away(participants):
 
 def normalize_fixture(item):
     participants = item.get("participants") or []
-
     home, away = get_home_away(participants)
 
     league = item.get("league") or {}
@@ -197,47 +125,20 @@ def normalize_fixture(item):
 
     return {
         "id": item.get("id"),
-
-        "league": league.get(
-            "name",
-            "Competição"
-        ),
-
-        "league_logo": league.get(
-            "image_path",
-            ""
-        ),
-
-        "time": local_fixture_time(
-            item.get("starting_at")
-        ),
-
+        "league": league.get("name", "Competição"),
+        "league_logo": league.get("image_path", ""),
+        "time": local_fixture_time(item.get("starting_at")),
         "status": status,
-
         "home": {
             "id": home.get("id"),
-            "name": home.get(
-                "name",
-                "Mandante"
-            ),
-            "logo": home.get(
-                "image_path",
-                ""
-            ),
+            "name": home.get("name", "Mandante"),
+            "logo": home.get("image_path", ""),
         },
-
         "away": {
             "id": away.get("id"),
-            "name": away.get(
-                "name",
-                "Visitante"
-            ),
-            "logo": away.get(
-                "image_path",
-                ""
-            ),
+            "name": away.get("name", "Visitante"),
+            "logo": away.get("image_path", ""),
         },
-
         "demo": False,
     }
 
@@ -246,28 +147,17 @@ def numeric_value(value):
     if value is None:
         return 0.0
 
-    if isinstance(value, bool):
-        return float(value)
-
     if isinstance(value, (int, float)):
         return float(value)
 
     if isinstance(value, str):
         try:
-            return float(
-                value.replace("%", "").strip()
-            )
+            return float(value.replace("%", "").strip())
         except Exception:
             return 0.0
 
     if isinstance(value, dict):
-
-        for key in [
-            "total",
-            "count",
-            "value",
-            "goals",
-        ]:
+        for key in ["total", "count", "value", "goals"]:
             if key in value:
                 try:
                     return float(value[key] or 0)
@@ -278,11 +168,7 @@ def numeric_value(value):
 
 
 def fixture_stat(fixture, team_id, developer_names, type_ids=None):
-    wanted_names = {
-        str(x).upper()
-        for x in developer_names
-    }
-
+    wanted_names = {str(x).upper() for x in developer_names}
     wanted_ids = set(type_ids or [])
 
     for stat in fixture.get("statistics") or []:
@@ -308,18 +194,10 @@ def fixture_stat(fixture, team_id, developer_names, type_ids=None):
             data = stat.get("data")
 
             if isinstance(data, dict):
-                value = (
-                    data.get("value")
-                    if "value" in data
-                    else data
-                )
-            else:
-                value = data
+                if "value" in data:
+                    data = data.get("value")
 
-            if value is None:
-                value = stat.get("value")
-
-            return numeric_value(value)
+            return numeric_value(data)
 
     return 0.0
 
@@ -328,12 +206,10 @@ def goals_for_team(fixture, team_id):
     goals = []
 
     for score in fixture.get("scores") or []:
-
         if score.get("participant_id") != team_id:
             continue
 
         score_data = score.get("score") or {}
-
         value = score_data.get("goals")
 
         if value is not None:
@@ -342,10 +218,7 @@ def goals_for_team(fixture, team_id):
             except Exception:
                 pass
 
-    if not goals:
-        return 0.0
-
-    return max(goals)
+    return max(goals) if goals else 0.0
 
 
 def fetch_team_recent_fixtures(team_id, count=10):
@@ -380,35 +253,7 @@ def fetch_team_recent_fixtures(team_id, count=10):
         }
     )
 
-    completed = []
-
-    for fixture in rows:
-
-        state_id = fixture.get("state_id")
-
-        state = fixture.get("state") or {}
-
-        state_name = str(
-            state.get("developer_name", "")
-        ).upper()
-
-        if (
-            state_id == 5
-            or "FINISH" in state_name
-            or state_name in {
-                "FT",
-                "FULL_TIME"
-            }
-        ):
-            completed.append(fixture)
-
-        if len(completed) >= count:
-            break
-
-    if not completed:
-        completed = rows[:count]
-
-    return completed[:count]
+    return rows[:count]
 
 
 def fetch_average_stats(team_id, fixtures):
@@ -425,88 +270,48 @@ def fetch_average_stats(team_id, fixtures):
 
     for fixture in fixtures:
         try:
-            goals = goals_for_team(
-                fixture,
-                team_id
-            )
+            totals["goals"] += goals_for_team(fixture, team_id)
 
-            corners = fixture_stat(
+            totals["corners"] += fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "CORNERS",
-                    "CORNER_KICKS",
-                    "CORNERS_TOTAL",
-                ]
+                ["CORNERS", "CORNER_KICKS", "CORNERS_TOTAL"]
             )
 
-            shots = fixture_stat(
+            totals["shots"] += fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "SHOTS_TOTAL",
-                    "TOTAL_SHOTS",
-                    "SHOTS",
-                    "GOAL_ATTEMPTS",
-                ],
+                ["SHOTS_TOTAL", "TOTAL_SHOTS", "SHOTS", "GOAL_ATTEMPTS"],
                 [42]
             )
 
-            sot = fixture_stat(
+            totals["sot"] += fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "SHOTS_ON_TARGET",
-                    "SHOTS_ONTARGET",
-                    "ON_TARGET",
-                ],
+                ["SHOTS_ON_TARGET", "SHOTS_ONTARGET", "ON_TARGET"],
                 [86]
             )
 
-            fouls = fixture_stat(
+            totals["fouls"] += fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "FOULS",
-                    "FOULS_COMMITTED",
-                ],
+                ["FOULS", "FOULS_COMMITTED"],
                 [56]
             )
 
             yellow = fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "YELLOWCARDS",
-                    "YELLOW_CARDS",
-                ]
+                ["YELLOWCARDS", "YELLOW_CARDS"]
             )
 
             red = fixture_stat(
                 fixture,
                 team_id,
-                [
-                    "REDCARDS",
-                    "RED_CARDS",
-                ]
+                ["REDCARDS", "RED_CARDS"]
             )
 
-            yellow_red = fixture_stat(
-                fixture,
-                team_id,
-                [
-                    "YELLOWRED_CARDS",
-                    "YELLOW_RED_CARDS",
-                ]
-            )
-
-            totals["goals"] += goals
-            totals["corners"] += corners
-            totals["shots"] += shots
-            totals["sot"] += sot
-            totals["fouls"] += fouls
-            totals["cards"] += yellow + red + yellow_red
-
+            totals["cards"] += yellow + red
             used += 1
 
         except Exception:
@@ -523,10 +328,7 @@ def fetch_average_stats(team_id, fixtures):
 
 @app.get("/")
 def index():
-    return send_from_directory(
-        "static",
-        "index.html"
-    )
+    return send_from_directory("static", "index.html")
 
 
 @app.get("/api/health")
@@ -542,16 +344,10 @@ def health():
 
 @app.get("/api/fixtures/today")
 def fixtures_today():
-
     if DEMO_MODE or not API_KEY:
-
         return jsonify({
             "mode": "demo",
-            "message": (
-                "Modo demonstração: "
-                "configure SPORTMONKS_TOKEN "
-                "para usar partidas reais."
-            ),
+            "message": "Configure SPORTMONKS_TOKEN para usar partidas reais.",
             "fixtures": DEMO_FIXTURES,
         })
 
@@ -563,23 +359,12 @@ def fixtures_today():
         rows = api_get_list(
             f"fixtures/date/{today}",
             {
-                "include": (
-                    "participants;"
-                    "league;"
-                    "state"
-                ),
+                "include": "participants;league;state",
                 "per_page": 50,
             }
         )
 
-        fixtures = [
-            normalize_fixture(row)
-            for row in rows
-        ]
-
-        fixtures.sort(
-            key=lambda x: x.get("time") or "99:99"
-        )
+        fixtures = [normalize_fixture(row) for row in rows]
 
         return jsonify({
             "mode": "live",
@@ -588,7 +373,6 @@ def fixtures_today():
         })
 
     except Exception as e:
-
         return jsonify({
             "mode": "error",
             "message": str(e),
@@ -598,114 +382,40 @@ def fixtures_today():
 
 @app.get("/api/analysis/<int:fixture_id>")
 def analysis(fixture_id):
-
-    sample = request.args.get(
-        "sample",
-        "10"
-    )
+    sample = request.args.get("sample", "10")
 
     try:
-        sample = (
-            5
-            if int(sample) == 5
-            else 10
-        )
+        sample = 5 if int(sample) == 5 else 10
     except Exception:
         sample = 10
-
-    if DEMO_MODE or not API_KEY:
-
-        demo = DEMO_ANALYSIS.get(
-            fixture_id
-        )
-
-        if not demo:
-            return jsonify({
-                "error": (
-                    "Partida de demonstração "
-                    "não encontrada."
-                )
-            }), 404
-
-        response = dict(demo)
-
-        response["sample_size"] = sample
-
-        return jsonify(response)
 
     try:
         item = api_get(
             f"fixtures/{fixture_id}",
-            {
-                "include": (
-                    "participants;"
-                    "league;"
-                    "state"
-                )
-            }
+            {"include": "participants;league;state"}
         )
 
         if not item:
-            return jsonify({
-                "error": "Partida não encontrada."
-            }), 404
+            return jsonify({"error": "Partida não encontrada."}), 404
 
-        participants = (
-            item.get("participants")
-            or []
-        )
-
-        home, away = get_home_away(
-            participants
-        )
+        participants = item.get("participants") or []
+        home, away = get_home_away(participants)
 
         home_id = home.get("id")
         away_id = away.get("id")
 
-        if not home_id or not away_id:
-            return jsonify({
-                "error": (
-                    "Não foi possível identificar "
-                    "mandante e visitante."
-                )
-            }), 422
+        home_fixtures = fetch_team_recent_fixtures(home_id, sample)
+        away_fixtures = fetch_team_recent_fixtures(away_id, sample)
 
-        home_fixtures = (
-            fetch_team_recent_fixtures(
-                home_id,
-                sample
-            )
+        home_avg, home_used = fetch_average_stats(
+            home_id,
+            home_fixtures
         )
 
-        away_fixtures = (
-            fetch_team_recent_fixtures(
-                away_id,
-                sample
-            )
+        away_avg, away_used = fetch_average_stats(
+            away_id,
+            away_fixtures
         )
-
-        home_avg, home_used = (
-            fetch_average_stats(
-                home_id,
-                home_fixtures
-            )
-        )
-
-        away_avg, away_used = (
-            fetch_average_stats(
-                away_id,
-                away_fixtures
-            )
-        )
-
-        if not home_avg or not away_avg:
-            return jsonify({
-                "error": (
-                    "Não foi possível calcular "
-                    "estatísticas suficientes "
-                    "para esta partida."
-                )
-            }), 422
 
         order = [
             ("goals", "Gols"),
@@ -728,23 +438,53 @@ def analysis(fixture_id):
 
         return jsonify({
             "source": "SPORTMONKS",
-            "sample_size": min(
-                home_used,
-                away_used
-            ),
-            "home": home.get(
-                "name",
-                "Mandante"
-            ),
-            "away": away.get(
-                "name",
-                "Visitante"
-            ),
+            "sample_size": min(home_used, away_used),
+            "home": home.get("name", "Mandante"),
+            "away": away.get("name", "Visitante"),
             "stats": stats,
         })
 
     except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
+
+@app.get("/api/debug/team/<int:team_id>")
+def debug_team(team_id):
+    try:
+        fixtures = fetch_team_recent_fixtures(team_id, 3)
+
+        result = []
+
+        for fixture in fixtures:
+            stats_output = []
+
+            for stat in fixture.get("statistics") or []:
+                if stat.get("participant_id") != team_id:
+                    continue
+
+                type_info = stat.get("type") or {}
+
+                stats_output.append({
+                    "type_id": stat.get("type_id"),
+                    "developer_name": type_info.get("developer_name"),
+                    "code": type_info.get("code"),
+                    "name": type_info.get("name"),
+                    "data": stat.get("data"),
+                    "value": stat.get("value"),
+                })
+
+            result.append({
+                "fixture_id": fixture.get("id"),
+                "starting_at": fixture.get("starting_at"),
+                "statistics": stats_output,
+            })
+
+        return jsonify({
+            "team_id": team_id,
+            "fixtures": result,
+        })
+
+    except Exception as e:
         return jsonify({
             "error": str(e)
         }), 502
@@ -752,27 +492,14 @@ def analysis(fixture_id):
 
 @app.get("/api/lines/<int:fixture_id>")
 def lines(fixture_id):
-
     return jsonify({
-        "message": (
-            "As linhas automáticas serão "
-            "habilitadas somente depois "
-            "que validarmos os dados "
-            "reais da partida."
-        ),
+        "message": "Linhas automáticas ainda em validação.",
         "lines": []
     })
 
 
 if __name__ == "__main__":
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "5000"
-        )
-    )
-
+    port = int(os.getenv("PORT", "5000"))
     app.run(
         host="0.0.0.0",
         port=port,
