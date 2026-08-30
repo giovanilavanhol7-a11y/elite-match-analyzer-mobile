@@ -13,7 +13,6 @@ app = Flask(__name__, static_folder="static")
 
 API_KEY = os.getenv("PITCHAPI_KEY", "").strip()
 API_BASE = "https://api.pitchapi.dev"
-
 TZ_NAME = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 
 CACHE = {}
@@ -59,7 +58,6 @@ def api_get(path, cache_seconds=CACHE_API):
         )
 
     path = path.lstrip("/")
-
     cache_key = f"api:{path}"
 
     cached = cache_get(cache_key)
@@ -92,7 +90,6 @@ def api_get(path, cache_seconds=CACHE_API):
         message = None
 
         if isinstance(body, dict):
-
             error = body.get("error")
 
             if isinstance(error, dict):
@@ -136,7 +133,6 @@ def local_time(value):
         return ""
 
     try:
-
         dt = datetime.fromisoformat(
             value.replace("Z", "+00:00")
         )
@@ -149,6 +145,31 @@ def local_time(value):
 
     except Exception:
         return ""
+
+
+def safe_number(value):
+
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+
+    if not text:
+        return None
+
+    # Ex.: "329 (82%)" -> 329
+    text = text.split(" ")[0]
+    text = text.replace("%", "")
+    text = text.replace(",", ".")
+
+    try:
+        return float(text)
+
+    except Exception:
+        return None
 
 
 def normalize_fixture(item):
@@ -183,12 +204,10 @@ def normalize_fixture(item):
 
         "home": {
             "id": home.get("id"),
-
             "name": home.get(
                 "name",
                 "Mandante"
             ),
-
             "logo": home.get(
                 "image_url",
                 ""
@@ -197,12 +216,10 @@ def normalize_fixture(item):
 
         "away": {
             "id": away.get("id"),
-
             "name": away.get(
                 "name",
                 "Visitante"
             ),
-
             "logo": away.get(
                 "image_url",
                 ""
@@ -213,39 +230,13 @@ def normalize_fixture(item):
     }
 
 
-def safe_number(value):
-
-    if value is None:
-        return None
-
-    if isinstance(value, (int, float)):
-        return float(value)
-
-    text = str(value).strip()
-
-    if not text:
-        return None
-
-    text = text.split(" ")[0]
-
-    text = text.replace("%", "")
-    text = text.replace(",", ".")
-
-    try:
-        return float(text)
-
-    except Exception:
-        return None
-
-
 # =========================================================
-# ESTATÍSTICAS BRUTAS DA PARTIDA
+# ESTATÍSTICAS EXATAS DA PARTIDA
 # =========================================================
 
-def extract_team_stats(match_id):
+def extract_exact_stats(match_id):
 
     try:
-
         data = api_get(
             f"v1/matches/{match_id}/stats"
         )
@@ -260,19 +251,12 @@ def extract_team_stats(match_id):
 
     result = {}
 
+    # Queremos somente o total da partida
     for period in periods:
 
-        period_name = str(
+        if str(
             period.get("period", "")
-        ).lower()
-
-        if period_name not in (
-            "all",
-            "full",
-            "match",
-            "total",
-            "ft"
-        ):
+        ).lower() != "all":
             continue
 
         groups = period.get("groups") or []
@@ -285,22 +269,15 @@ def extract_team_stats(match_id):
 
                 key = str(
                     item.get("key", "")
-                ).strip().lower()
-
-                title = str(
-                    item.get("title", "")
-                ).strip().lower()
+                ).strip()
 
                 if not key:
-                    key = title
+                    continue
 
                 result[key] = {
-                    "title": title,
-
                     "home": safe_number(
                         item.get("home")
                     ),
-
                     "away": safe_number(
                         item.get("away")
                     )
@@ -309,38 +286,69 @@ def extract_team_stats(match_id):
     return result
 
 
-def find_stat(stats, aliases):
+def stat_value(stats, key, is_home):
 
-    aliases = [
-        str(x).lower()
-        for x in aliases
-    ]
+    item = stats.get(key)
 
-    for alias in aliases:
+    if not item:
+        return None
 
-        if alias in stats:
-            return stats[alias]
+    if is_home:
+        return item.get("home")
 
-    for key, value in stats.items():
+    return item.get("away")
 
-        key_text = str(key).lower()
 
-        title = str(
-            value.get("title", "")
-        ).lower()
+# =========================================================
+# CARTÕES PELOS EVENTOS
+# =========================================================
 
-        for alias in aliases:
+def cards_for_match(match_id):
 
-            if alias == key_text:
-                return value
+    try:
 
-            if alias in key_text:
-                return value
+        data = api_get(
+            f"v1/matches/{match_id}/events"
+        )
 
-            if alias in title:
-                return value
+    except Exception:
+        return None
 
-    return None
+    if not isinstance(data, dict):
+        return None
+
+    events = data.get("events")
+
+    if events is None:
+        return None
+
+    totals = {}
+
+    for event in events:
+
+        event_type = str(
+            event.get(
+                "event_type",
+                ""
+            )
+        ).strip().lower()
+
+        team_id = event.get("team_id")
+
+        if not team_id:
+            continue
+
+        if event_type not in (
+            "yellowcard",
+            "redcard"
+        ):
+            continue
+
+        totals[team_id] = (
+            totals.get(team_id, 0) + 1
+        )
+
+    return totals
 
 
 # =========================================================
@@ -414,16 +422,12 @@ def recent_team_matches(
 
         finished.append(match)
 
-    def sort_key(match):
-
-        return (
-            match.get("time_utc")
-            or match.get("date")
-            or ""
-        )
-
     finished.sort(
-        key=sort_key,
+        key=lambda m: (
+            m.get("time_utc")
+            or m.get("date")
+            or ""
+        ),
         reverse=True
     )
 
@@ -431,18 +435,26 @@ def recent_team_matches(
 
 
 # =========================================================
-# DADOS DE UM TIME EM UMA PARTIDA
+# DADOS DO TIME EM UMA PARTIDA
 # =========================================================
 
 def team_match_data(match, team_id):
 
     match_id = match.get("id")
 
-    home = match.get("home_team") or {}
-    away = match.get("away_team") or {}
+    home = match.get(
+        "home_team"
+    ) or {}
 
-    is_home = home.get("id") == team_id
+    away = match.get(
+        "away_team"
+    ) or {}
 
+    is_home = (
+        home.get("id") == team_id
+    )
+
+    # GOLS
     score_home = safe_number(
         match.get("score_home")
     )
@@ -457,119 +469,85 @@ def team_match_data(match, team_id):
         else score_away
     )
 
-    raw_stats = extract_team_stats(
+    # Estatísticas oficiais
+    stats = extract_exact_stats(
         match_id
     )
 
-    # ESCANTEIOS
-    corners_item = find_stat(
-        raw_stats,
-        [
-            "corners",
-            "corner_kicks",
-            "corner kicks",
-            "corner"
-        ]
+    # IMPORTANTE:
+    # sem pesquisa aproximada.
+    # Só chaves exatas da PitchAPI.
+
+    shots = stat_value(
+        stats,
+        "shots",
+        is_home
     )
 
-    # FALTAS
-    fouls_item = find_stat(
-        raw_stats,
-        [
-            "fouls",
-            "fouls_committed",
-            "fouls committed",
-            "foul"
-        ]
+    sot = stat_value(
+        stats,
+        "shots_on_target",
+        is_home
     )
 
-    # FINALIZAÇÕES
-    shots_item = find_stat(
-        raw_stats,
-        [
-            "shots",
-            "total_shots",
-            "total shots",
-            "shots total",
-            "goal attempts"
-        ]
-    )
+    # Tenta nomes conhecidos para escanteios
+    corners = None
 
-    # CHUTES NO GOL
-    sot_item = find_stat(
-        raw_stats,
-        [
-            "shots_on_target",
-            "shots on target",
-            "on target",
-            "shots target"
-        ]
-    )
+    for key in (
+        "corners",
+        "corner_kicks",
+        "cornerKicks"
+    ):
 
-    # CARTÕES AMARELOS
-    yellow_item = find_stat(
-        raw_stats,
-        [
-            "yellow_cards",
-            "yellow cards",
-            "yellow card"
-        ]
-    )
+        value = stat_value(
+            stats,
+            key,
+            is_home
+        )
 
-    # CARTÕES VERMELHOS
-    red_item = find_stat(
-        raw_stats,
-        [
-            "red_cards",
-            "red cards",
-            "red card"
-        ]
-    )
+        if value is not None:
+            corners = value
+            break
 
-    def side_value(item):
+    # Tenta nomes conhecidos para faltas
+    fouls = None
 
-        if not item:
-            return None
+    for key in (
+        "fouls",
+        "fouls_committed",
+        "foulsCommitted"
+    ):
 
-        if is_home:
-            return item.get("home")
+        value = stat_value(
+            stats,
+            key,
+            is_home
+        )
 
-        return item.get("away")
+        if value is not None:
+            fouls = value
+            break
 
-    corners = side_value(
-        corners_item
-    )
-
-    fouls = side_value(
-        fouls_item
-    )
-
-    shots = side_value(
-        shots_item
-    )
-
-    sot = side_value(
-        sot_item
-    )
-
-    yellow = side_value(
-        yellow_item
-    )
-
-    red = side_value(
-        red_item
+    # CARTÕES:
+    # sempre pelos eventos
+    card_data = cards_for_match(
+        match_id
     )
 
     cards = None
 
-    if (
-        yellow is not None
-        or red is not None
+    if isinstance(
+        card_data,
+        dict
     ):
 
-        cards = (
-            (yellow or 0)
-            + (red or 0)
+        # Aqui zero é válido se realmente
+        # não houve nenhum cartão do time.
+        cards = float(
+            card_data.get(
+                team_id,
+                0
+            )
         )
 
     return {
@@ -634,7 +612,6 @@ def team_averages(
         )
 
         for key in collection:
-
             collection[key].append(
                 data.get(key)
             )
@@ -646,13 +623,11 @@ def team_averages(
     }
 
     coverage = {
-        key: len(
-            [
-                value
-                for value in values
-                if value is not None
-            ]
-        )
+        key: len([
+            value
+            for value in values
+            if value is not None
+        ])
         for key, values
         in collection.items()
     }
@@ -687,13 +662,10 @@ def health():
     return jsonify({
         "ok": True,
         "provider": "PITCHAPI",
-
         "api_configured": bool(
             API_KEY
         ),
-
         "demo_mode": False,
-
         "timezone": TZ_NAME
     })
 
@@ -716,10 +688,8 @@ def fixtures_today():
 
         return jsonify({
             "mode": "error",
-
             "message":
                 "PITCHAPI_KEY não configurada.",
-
             "fixtures": []
         }), 500
 
@@ -739,7 +709,6 @@ def fixtures_today():
         matches = []
 
         if isinstance(data, dict):
-
             matches = data.get(
                 "matches",
                 []
@@ -762,9 +731,7 @@ def fixtures_today():
             CACHE_FIXTURES
         )
 
-        return jsonify(
-            response
-        )
+        return jsonify(response)
 
     except Exception as e:
 
@@ -776,60 +743,7 @@ def fixtures_today():
 
 
 # =========================================================
-# TESTE DA API
-# =========================================================
-
-@app.get("/api/test-pitch")
-def test_pitch():
-
-    try:
-
-        today = datetime.now(
-            ZoneInfo(TZ_NAME)
-        ).strftime(
-            "%Y-%m-%d"
-        )
-
-        data = api_get(
-            f"v1/date/{today}",
-            60
-        )
-
-        matches = []
-
-        if isinstance(data, dict):
-
-            matches = data.get(
-                "matches",
-                []
-            )
-
-        return jsonify({
-            "ok": True,
-
-            "provider":
-                "PITCHAPI",
-
-            "date":
-                today,
-
-            "matches_found":
-                len(matches),
-
-            "sample":
-                matches[:3]
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 502
-
-
-# =========================================================
-# DETALHES DO JOGO
+# DETALHES
 # =========================================================
 
 @app.get("/api/match/<fixture_id>")
@@ -855,73 +769,26 @@ def match_detail(fixture_id):
 
 
 # =========================================================
-# ESTATÍSTICAS BRUTAS
+# DEBUG DAS ESTATÍSTICAS
 # =========================================================
 
-@app.get("/api/match/<fixture_id>/stats")
-def match_stats(fixture_id):
+@app.get("/api/debug/stats/<fixture_id>")
+def debug_stats(fixture_id):
 
     try:
 
-        data = api_get(
-            f"v1/matches/{fixture_id}/stats"
+        stats = extract_exact_stats(
+            fixture_id
         )
 
-        return jsonify({
-            "ok": True,
-            "data": data
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 502
-
-
-# =========================================================
-# CHUTES BRUTOS
-# =========================================================
-
-@app.get("/api/match/<fixture_id>/shots")
-def match_shots(fixture_id):
-
-    try:
-
-        data = api_get(
-            f"v1/matches/{fixture_id}/shots"
-        )
-
-        return jsonify({
-            "ok": True,
-            "data": data
-        })
-
-    except Exception as e:
-
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 502
-
-
-# =========================================================
-# EVENTOS
-# =========================================================
-
-@app.get("/api/match/<fixture_id>/events")
-def match_events(fixture_id):
-
-    try:
-
-        data = api_get(
+        events = api_get(
             f"v1/matches/{fixture_id}/events"
         )
 
         return jsonify({
             "ok": True,
-            "data": data
+            "stats": stats,
+            "events": events
         })
 
     except Exception as e:
@@ -933,14 +800,13 @@ def match_events(fixture_id):
 
 
 # =========================================================
-# ANÁLISE DOS ÚLTIMOS 5 / 10
+# ANÁLISE
 # =========================================================
 
 @app.get("/api/analysis/<fixture_id>")
 def analysis(fixture_id):
 
     try:
-
         sample = int(
             request.args.get(
                 "sample",
@@ -949,14 +815,13 @@ def analysis(fixture_id):
         )
 
     except Exception:
-
         sample = 10
 
     if sample not in (5, 10):
         sample = 10
 
     cache_key = (
-        f"analysis:"
+        f"analysis_v3:"
         f"{fixture_id}:"
         f"{sample}"
     )
@@ -966,10 +831,7 @@ def analysis(fixture_id):
     )
 
     if cached is not None:
-
-        return jsonify(
-            cached
-        )
+        return jsonify(cached)
 
     try:
 
@@ -981,7 +843,6 @@ def analysis(fixture_id):
             fixture,
             dict
         ):
-
             raise RuntimeError(
                 "Partida não encontrada."
             )
@@ -998,17 +859,9 @@ def analysis(fixture_id):
             "away_team"
         ) or {}
 
-        league_id = league.get(
-            "id"
-        )
-
-        home_id = home.get(
-            "id"
-        )
-
-        away_id = away.get(
-            "id"
-        )
+        league_id = league.get("id")
+        home_id = home.get("id")
+        away_id = away.get("id")
 
         home_data = team_averages(
             league_id,
@@ -1024,13 +877,8 @@ def analysis(fixture_id):
             sample
         )
 
-        h = home_data[
-            "averages"
-        ]
-
-        a = away_data[
-            "averages"
-        ]
+        h = home_data["averages"]
+        a = away_data["averages"]
 
         stats = [
             {
@@ -1039,35 +887,30 @@ def analysis(fixture_id):
                 "home": h.get("goals"),
                 "away": a.get("goals")
             },
-
             {
                 "key": "corners",
                 "label": "Escanteios",
                 "home": h.get("corners"),
                 "away": a.get("corners")
             },
-
             {
                 "key": "shots",
                 "label": "Finalizações",
                 "home": h.get("shots"),
                 "away": a.get("shots")
             },
-
             {
                 "key": "sot",
                 "label": "Chutes no gol",
                 "home": h.get("sot"),
                 "away": a.get("sot")
             },
-
             {
                 "key": "cards",
                 "label": "Cartões",
                 "home": h.get("cards"),
                 "away": a.get("cards")
             },
-
             {
                 "key": "fouls",
                 "label": "Faltas",
@@ -1077,33 +920,23 @@ def analysis(fixture_id):
         ]
 
         response = {
-            "source":
-                "PITCHAPI",
-
-            "sample_size":
-                sample,
+            "source": "PITCHAPI",
+            "sample_size": sample,
 
             "home": {
-                "id":
-                    home_id,
-
-                "name":
-                    home.get(
-                        "name",
-                        "Mandante"
-                    ),
-
-                "logo":
-                    home.get(
-                        "image_url",
-                        ""
-                    ),
-
+                "id": home_id,
+                "name": home.get(
+                    "name",
+                    "Mandante"
+                ),
+                "logo": home.get(
+                    "image_url",
+                    ""
+                ),
                 "matches_used":
                     home_data[
                         "matches_used"
                     ],
-
                 "coverage":
                     home_data[
                         "coverage"
@@ -1111,34 +944,26 @@ def analysis(fixture_id):
             },
 
             "away": {
-                "id":
-                    away_id,
-
-                "name":
-                    away.get(
-                        "name",
-                        "Visitante"
-                    ),
-
-                "logo":
-                    away.get(
-                        "image_url",
-                        ""
-                    ),
-
+                "id": away_id,
+                "name": away.get(
+                    "name",
+                    "Visitante"
+                ),
+                "logo": away.get(
+                    "image_url",
+                    ""
+                ),
                 "matches_used":
                     away_data[
                         "matches_used"
                     ],
-
                 "coverage":
                     away_data[
                         "coverage"
                     ]
             },
 
-            "stats":
-                stats
+            "stats": stats
         }
 
         cache_set(
@@ -1147,29 +972,20 @@ def analysis(fixture_id):
             CACHE_ANALYSIS
         )
 
-        return jsonify(
-            response
-        )
+        return jsonify(response)
 
     except Exception as e:
 
         return jsonify({
-            "source":
-                "PITCHAPI",
-
-            "sample_size":
-                sample,
-
-            "stats":
-                [],
-
-            "error":
-                str(e)
+            "source": "PITCHAPI",
+            "sample_size": sample,
+            "stats": [],
+            "error": str(e)
         }), 502
 
 
 # =========================================================
-# LINHAS DE APOSTA
+# LINHAS
 # =========================================================
 
 @app.get("/api/lines/<fixture_id>")
@@ -1177,15 +993,14 @@ def lines(fixture_id):
 
     return jsonify({
         "message":
-            "As sugestões serão ativadas "
-            "depois que validarmos todas as médias.",
-
+            "As sugestões serão liberadas "
+            "depois que todas as médias forem validadas.",
         "lines": []
     })
 
 
 # =========================================================
-# INICIAR SERVIDOR
+# INICIAR
 # =========================================================
 
 if __name__ == "__main__":
