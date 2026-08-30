@@ -27,6 +27,7 @@ CACHE_API = 600
 # =========================================================
 
 def cache_get(key):
+
     item = CACHE.get(key)
 
     if not item:
@@ -40,6 +41,7 @@ def cache_get(key):
 
 
 def cache_set(key, value, ttl):
+
     CACHE[key] = {
         "value": value,
         "expires": time.time() + ttl
@@ -58,6 +60,7 @@ def api_get(path, cache_seconds=CACHE_API):
         )
 
     path = path.lstrip("/")
+
     cache_key = f"api:{path}"
 
     cached = cache_get(cache_key)
@@ -77,9 +80,11 @@ def api_get(path, cache_seconds=CACHE_API):
     )
 
     try:
+
         body = response.json()
 
     except Exception:
+
         raise RuntimeError(
             f"Resposta inválida da PitchAPI "
             f"(HTTP {response.status_code})."
@@ -90,18 +95,22 @@ def api_get(path, cache_seconds=CACHE_API):
         message = None
 
         if isinstance(body, dict):
+
             error = body.get("error")
 
             if isinstance(error, dict):
+
                 message = (
                     error.get("message")
                     or error.get("code")
                 )
 
             elif error:
+
                 message = str(error)
 
             if not message:
+
                 message = body.get("message")
 
         raise RuntimeError(
@@ -110,8 +119,11 @@ def api_get(path, cache_seconds=CACHE_API):
         )
 
     if isinstance(body, dict) and "data" in body:
+
         data = body["data"]
+
     else:
+
         data = body
 
     cache_set(
@@ -133,6 +145,7 @@ def local_time(value):
         return ""
 
     try:
+
         dt = datetime.fromisoformat(
             value.replace("Z", "+00:00")
         )
@@ -144,6 +157,7 @@ def local_time(value):
         return dt.strftime("%H:%M")
 
     except Exception:
+
         return ""
 
 
@@ -160,15 +174,17 @@ def safe_number(value):
     if not text:
         return None
 
-    # Ex.: "329 (82%)" -> 329
     text = text.split(" ")[0]
+
     text = text.replace("%", "")
     text = text.replace(",", ".")
 
     try:
+
         return float(text)
 
     except Exception:
+
         return None
 
 
@@ -204,10 +220,12 @@ def normalize_fixture(item):
 
         "home": {
             "id": home.get("id"),
+
             "name": home.get(
                 "name",
                 "Mandante"
             ),
+
             "logo": home.get(
                 "image_url",
                 ""
@@ -216,10 +234,12 @@ def normalize_fixture(item):
 
         "away": {
             "id": away.get("id"),
+
             "name": away.get(
                 "name",
                 "Visitante"
             ),
+
             "logo": away.get(
                 "image_url",
                 ""
@@ -231,17 +251,19 @@ def normalize_fixture(item):
 
 
 # =========================================================
-# ESTATÍSTICAS EXATAS DA PARTIDA
+# ESTATÍSTICAS DA PARTIDA
 # =========================================================
 
-def extract_exact_stats(match_id):
+def extract_team_stats(match_id):
 
     try:
+
         data = api_get(
             f"v1/matches/{match_id}/stats"
         )
 
     except Exception:
+
         return {}
 
     if not isinstance(data, dict):
@@ -251,12 +273,19 @@ def extract_exact_stats(match_id):
 
     result = {}
 
-    # Queremos somente o total da partida
     for period in periods:
 
-        if str(
+        period_name = str(
             period.get("period", "")
-        ).lower() != "all":
+        ).lower()
+
+        # Estatística do jogo completo
+        if period_name not in (
+            "all",
+            "full",
+            "match",
+            "total"
+        ):
             continue
 
         groups = period.get("groups") or []
@@ -269,15 +298,22 @@ def extract_exact_stats(match_id):
 
                 key = str(
                     item.get("key", "")
-                ).strip()
+                ).strip().lower()
+
+                title = str(
+                    item.get("title", "")
+                ).strip().lower()
 
                 if not key:
-                    continue
+                    key = title
 
                 result[key] = {
+                    "title": title,
+
                     "home": safe_number(
                         item.get("home")
                     ),
+
                     "away": safe_number(
                         item.get("away")
                     )
@@ -286,17 +322,93 @@ def extract_exact_stats(match_id):
     return result
 
 
-def stat_value(stats, key, is_home):
+def find_stat(stats, aliases):
 
-    item = stats.get(key)
+    aliases = [
+        str(alias).lower()
+        for alias in aliases
+    ]
 
-    if not item:
+    # Primeiro chave exata
+    for alias in aliases:
+
+        if alias in stats:
+            return stats[alias]
+
+    # Depois apenas para escanteios/faltas
+    for key, item in stats.items():
+
+        key_text = str(key).lower()
+
+        title = str(
+            item.get("title", "")
+        ).lower()
+
+        for alias in aliases:
+
+            if alias == key_text:
+                return item
+
+            if alias == title:
+                return item
+
+    return None
+
+
+# =========================================================
+# FINALIZAÇÕES PELO ENDPOINT /SHOTS
+# =========================================================
+
+def shots_for_match(match_id):
+
+    try:
+
+        data = api_get(
+            f"v1/matches/{match_id}/shots"
+        )
+
+    except Exception:
+
         return None
 
-    if is_home:
-        return item.get("home")
+    if not isinstance(data, dict):
+        return None
 
-    return item.get("away")
+    periods = data.get("periods")
+
+    # Se o campo nem existir, não inventamos zero.
+    if periods is None:
+        return None
+
+    totals = {}
+
+    for period in periods:
+
+        shots = period.get("shots") or []
+
+        for shot in shots:
+
+            team_id = shot.get("team_id")
+
+            if not team_id:
+                continue
+
+            if team_id not in totals:
+
+                totals[team_id] = {
+                    "shots": 0,
+                    "sot": 0
+                }
+
+            # Cada objeto = 1 finalização
+            totals[team_id]["shots"] += 1
+
+            # Chute no gol
+            if shot.get("is_on_target") is True:
+
+                totals[team_id]["sot"] += 1
+
+    return totals
 
 
 # =========================================================
@@ -312,6 +424,7 @@ def cards_for_match(match_id):
         )
 
     except Exception:
+
         return None
 
     if not isinstance(data, dict):
@@ -345,14 +458,15 @@ def cards_for_match(match_id):
             continue
 
         totals[team_id] = (
-            totals.get(team_id, 0) + 1
+            totals.get(team_id, 0)
+            + 1
         )
 
     return totals
 
 
 # =========================================================
-# JOGOS RECENTES
+# JOGOS RECENTES DO TIME
 # =========================================================
 
 def recent_team_matches(
@@ -372,6 +486,7 @@ def recent_team_matches(
         )
 
     except Exception:
+
         return []
 
     if not isinstance(data, dict):
@@ -423,9 +538,9 @@ def recent_team_matches(
         finished.append(match)
 
     finished.sort(
-        key=lambda m: (
-            m.get("time_utc")
-            or m.get("date")
+        key=lambda match: (
+            match.get("time_utc")
+            or match.get("date")
             or ""
         ),
         reverse=True
@@ -435,7 +550,7 @@ def recent_team_matches(
 
 
 # =========================================================
-# DADOS DO TIME EM UMA PARTIDA
+# DADOS DO TIME EM CADA JOGO
 # =========================================================
 
 def team_match_data(match, team_id):
@@ -454,7 +569,10 @@ def team_match_data(match, team_id):
         home.get("id") == team_id
     )
 
+    # -------------------------
     # GOLS
+    # -------------------------
+
     score_home = safe_number(
         match.get("score_home")
     )
@@ -469,67 +587,90 @@ def team_match_data(match, team_id):
         else score_away
     )
 
-    # Estatísticas oficiais
-    stats = extract_exact_stats(
+    # -------------------------
+    # ESCANTEIOS / FALTAS
+    # -------------------------
+
+    stats = extract_team_stats(
         match_id
     )
 
-    # IMPORTANTE:
-    # sem pesquisa aproximada.
-    # Só chaves exatas da PitchAPI.
-
-    shots = stat_value(
+    corners_item = find_stat(
         stats,
-        "shots",
-        is_home
+        [
+            "corners",
+            "corner_kicks",
+            "corner kicks"
+        ]
     )
 
-    sot = stat_value(
+    fouls_item = find_stat(
         stats,
-        "shots_on_target",
-        is_home
+        [
+            "fouls",
+            "fouls_committed",
+            "fouls committed"
+        ]
     )
 
-    # Tenta nomes conhecidos para escanteios
-    corners = None
+    def side_value(item):
 
-    for key in (
-        "corners",
-        "corner_kicks",
-        "cornerKicks"
+        if not item:
+            return None
+
+        if is_home:
+            return item.get("home")
+
+        return item.get("away")
+
+    corners = side_value(
+        corners_item
+    )
+
+    fouls = side_value(
+        fouls_item
+    )
+
+    # -------------------------
+    # FINALIZAÇÕES / CHUTES NO GOL
+    # -------------------------
+
+    shot_data = shots_for_match(
+        match_id
+    )
+
+    shots = None
+    sot = None
+
+    if isinstance(
+        shot_data,
+        dict
     ):
 
-        value = stat_value(
-            stats,
-            key,
-            is_home
+        team_shots = shot_data.get(
+            team_id
         )
 
-        if value is not None:
-            corners = value
-            break
+        if team_shots is not None:
 
-    # Tenta nomes conhecidos para faltas
-    fouls = None
+            shots = float(
+                team_shots.get(
+                    "shots",
+                    0
+                )
+            )
 
-    for key in (
-        "fouls",
-        "fouls_committed",
-        "foulsCommitted"
-    ):
+            sot = float(
+                team_shots.get(
+                    "sot",
+                    0
+                )
+            )
 
-        value = stat_value(
-            stats,
-            key,
-            is_home
-        )
+    # -------------------------
+    # CARTÕES
+    # -------------------------
 
-        if value is not None:
-            fouls = value
-            break
-
-    # CARTÕES:
-    # sempre pelos eventos
     card_data = cards_for_match(
         match_id
     )
@@ -541,8 +682,6 @@ def team_match_data(match, team_id):
         dict
     ):
 
-        # Aqui zero é válido se realmente
-        # não houve nenhum cartão do time.
         cards = float(
             card_data.get(
                 team_id,
@@ -612,6 +751,7 @@ def team_averages(
         )
 
         for key in collection:
+
             collection[key].append(
                 data.get(key)
             )
@@ -662,10 +802,13 @@ def health():
     return jsonify({
         "ok": True,
         "provider": "PITCHAPI",
+
         "api_configured": bool(
             API_KEY
         ),
+
         "demo_mode": False,
+
         "timezone": TZ_NAME
     })
 
@@ -688,8 +831,10 @@ def fixtures_today():
 
         return jsonify({
             "mode": "error",
+
             "message":
                 "PITCHAPI_KEY não configurada.",
+
             "fixtures": []
         }), 500
 
@@ -709,13 +854,16 @@ def fixtures_today():
         matches = []
 
         if isinstance(data, dict):
+
             matches = data.get(
                 "matches",
                 []
             )
 
         fixtures = [
-            normalize_fixture(match)
+            normalize_fixture(
+                match
+            )
             for match in matches
         ]
 
@@ -743,7 +891,7 @@ def fixtures_today():
 
 
 # =========================================================
-# DETALHES
+# DETALHES DA PARTIDA
 # =========================================================
 
 @app.get("/api/match/<fixture_id>")
@@ -769,26 +917,26 @@ def match_detail(fixture_id):
 
 
 # =========================================================
-# DEBUG DAS ESTATÍSTICAS
+# TESTE DOS SHOTS
 # =========================================================
 
-@app.get("/api/debug/stats/<fixture_id>")
-def debug_stats(fixture_id):
+@app.get("/api/debug/shots/<fixture_id>")
+def debug_shots(fixture_id):
 
     try:
 
-        stats = extract_exact_stats(
-            fixture_id
+        raw = api_get(
+            f"v1/matches/{fixture_id}/shots"
         )
 
-        events = api_get(
-            f"v1/matches/{fixture_id}/events"
+        counted = shots_for_match(
+            fixture_id
         )
 
         return jsonify({
             "ok": True,
-            "stats": stats,
-            "events": events
+            "raw": raw,
+            "counted": counted
         })
 
     except Exception as e:
@@ -807,6 +955,7 @@ def debug_stats(fixture_id):
 def analysis(fixture_id):
 
     try:
+
         sample = int(
             request.args.get(
                 "sample",
@@ -815,13 +964,14 @@ def analysis(fixture_id):
         )
 
     except Exception:
+
         sample = 10
 
     if sample not in (5, 10):
         sample = 10
 
     cache_key = (
-        f"analysis_v3:"
+        f"analysis_v4:"
         f"{fixture_id}:"
         f"{sample}"
     )
@@ -831,6 +981,7 @@ def analysis(fixture_id):
     )
 
     if cached is not None:
+
         return jsonify(cached)
 
     try:
@@ -843,6 +994,7 @@ def analysis(fixture_id):
             fixture,
             dict
         ):
+
             raise RuntimeError(
                 "Partida não encontrada."
             )
@@ -877,8 +1029,13 @@ def analysis(fixture_id):
             sample
         )
 
-        h = home_data["averages"]
-        a = away_data["averages"]
+        h = home_data[
+            "averages"
+        ]
+
+        a = away_data[
+            "averages"
+        ]
 
         stats = [
             {
@@ -887,30 +1044,35 @@ def analysis(fixture_id):
                 "home": h.get("goals"),
                 "away": a.get("goals")
             },
+
             {
                 "key": "corners",
                 "label": "Escanteios",
                 "home": h.get("corners"),
                 "away": a.get("corners")
             },
+
             {
                 "key": "shots",
                 "label": "Finalizações",
                 "home": h.get("shots"),
                 "away": a.get("shots")
             },
+
             {
                 "key": "sot",
                 "label": "Chutes no gol",
                 "home": h.get("sot"),
                 "away": a.get("sot")
             },
+
             {
                 "key": "cards",
                 "label": "Cartões",
                 "home": h.get("cards"),
                 "away": a.get("cards")
             },
+
             {
                 "key": "fouls",
                 "label": "Faltas",
@@ -921,99 +1083,12 @@ def analysis(fixture_id):
 
         response = {
             "source": "PITCHAPI",
+
             "sample_size": sample,
 
             "home": {
                 "id": home_id,
+
                 "name": home.get(
                     "name",
-                    "Mandante"
-                ),
-                "logo": home.get(
-                    "image_url",
-                    ""
-                ),
-                "matches_used":
-                    home_data[
-                        "matches_used"
-                    ],
-                "coverage":
-                    home_data[
-                        "coverage"
-                    ]
-            },
-
-            "away": {
-                "id": away_id,
-                "name": away.get(
-                    "name",
-                    "Visitante"
-                ),
-                "logo": away.get(
-                    "image_url",
-                    ""
-                ),
-                "matches_used":
-                    away_data[
-                        "matches_used"
-                    ],
-                "coverage":
-                    away_data[
-                        "coverage"
-                    ]
-            },
-
-            "stats": stats
-        }
-
-        cache_set(
-            cache_key,
-            response,
-            CACHE_ANALYSIS
-        )
-
-        return jsonify(response)
-
-    except Exception as e:
-
-        return jsonify({
-            "source": "PITCHAPI",
-            "sample_size": sample,
-            "stats": [],
-            "error": str(e)
-        }), 502
-
-
-# =========================================================
-# LINHAS
-# =========================================================
-
-@app.get("/api/lines/<fixture_id>")
-def lines(fixture_id):
-
-    return jsonify({
-        "message":
-            "As sugestões serão liberadas "
-            "depois que todas as médias forem validadas.",
-        "lines": []
-    })
-
-
-# =========================================================
-# INICIAR
-# =========================================================
-
-if __name__ == "__main__":
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "5000"
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False
-    )
+                    "Mand
