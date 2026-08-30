@@ -6,20 +6,12 @@ from zoneinfo import ZoneInfo
 
 app = Flask(__name__, static_folder="static")
 
-# =========================
-# CONFIGURAÇÃO SPORTMONKS
-# =========================
-
 API_KEY = os.getenv("SPORTMONKS_TOKEN", "").strip()
 API_BASE = "https://api.sportmonks.com/v3/football"
 
 TZ_NAME = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
-
-# =========================
-# DADOS DE DEMONSTRAÇÃO
-# =========================
 
 DEMO_FIXTURES = [
     {
@@ -93,10 +85,6 @@ DEMO_ANALYSIS = {
 }
 
 
-# =========================
-# SPORTMONKS
-# =========================
-
 def api_get(path, params=None):
     if not API_KEY:
         raise RuntimeError("SPORTMONKS_TOKEN não configurado")
@@ -145,20 +133,14 @@ def api_get_list(path, params=None):
     return [data]
 
 
-# =========================
-# UTILIDADES
-# =========================
-
 def local_fixture_time(starting_at):
     if not starting_at:
         return ""
 
     try:
         text = str(starting_at).replace("Z", "+00:00")
-
         dt = datetime.fromisoformat(text)
 
-        # Sportmonks normalmente retorna horário UTC.
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
 
@@ -189,7 +171,6 @@ def get_home_away(participants):
         elif location == "away":
             away = team
 
-    # Segurança caso a API não envie meta.location
     if not home and participants:
         home = participants[0]
 
@@ -261,10 +242,6 @@ def normalize_fixture(item):
     }
 
 
-# =========================
-# ESTATÍSTICAS
-# =========================
-
 def numeric_value(value):
     if value is None:
         return 0.0
@@ -300,23 +277,19 @@ def numeric_value(value):
     return 0.0
 
 
-def fixture_stat(
-    fixture,
-    team_id,
-    developer_names
-):
-    wanted = {
+def fixture_stat(fixture, team_id, developer_names, type_ids=None):
+    wanted_names = {
         str(x).upper()
         for x in developer_names
     }
 
+    wanted_ids = set(type_ids or [])
+
     for stat in fixture.get("statistics") or []:
-
-        participant_id = stat.get("participant_id")
-
-        if participant_id != team_id:
+        if stat.get("participant_id") != team_id:
             continue
 
+        type_id = stat.get("type_id")
         type_info = stat.get("type") or {}
 
         developer_name = str(
@@ -328,12 +301,25 @@ def fixture_stat(
         ).upper().replace("-", "_")
 
         if (
-            developer_name in wanted
-            or code in wanted
+            type_id in wanted_ids
+            or developer_name in wanted_names
+            or code in wanted_names
         ):
-            return numeric_value(
-                stat.get("data", stat.get("value"))
-            )
+            data = stat.get("data")
+
+            if isinstance(data, dict):
+                value = (
+                    data.get("value")
+                    if "value" in data
+                    else data
+                )
+            else:
+                value = data
+
+            if value is None:
+                value = stat.get("value")
+
+            return numeric_value(value)
 
     return 0.0
 
@@ -359,14 +345,10 @@ def goals_for_team(fixture, team_id):
     if not goals:
         return 0.0
 
-    # Pode haver placar do intervalo e placar final.
     return max(goals)
 
 
-def fetch_team_recent_fixtures(
-    team_id,
-    count=10
-):
+def fetch_team_recent_fixtures(team_id, count=10):
     tz = ZoneInfo(TZ_NAME)
 
     end_date = (
@@ -410,7 +392,6 @@ def fetch_team_recent_fixtures(
             state.get("developer_name", "")
         ).upper()
 
-        # Sportmonks state_id 5 = finalizado.
         if (
             state_id == 5
             or "FINISH" in state_name
@@ -424,18 +405,13 @@ def fetch_team_recent_fixtures(
         if len(completed) >= count:
             break
 
-    # Caso o plano não forneça o include state,
-    # usa os primeiros jogos anteriores à data atual.
     if not completed:
         completed = rows[:count]
 
     return completed[:count]
 
 
-def fetch_average_stats(
-    team_id,
-    fixtures
-):
+def fetch_average_stats(team_id, fixtures):
     totals = {
         "goals": 0.0,
         "corners": 0.0,
@@ -448,7 +424,6 @@ def fetch_average_stats(
     used = 0
 
     for fixture in fixtures:
-
         try:
             goals = goals_for_team(
                 fixture,
@@ -461,6 +436,7 @@ def fetch_average_stats(
                 [
                     "CORNERS",
                     "CORNER_KICKS",
+                    "CORNERS_TOTAL",
                 ]
             )
 
@@ -468,10 +444,12 @@ def fetch_average_stats(
                 fixture,
                 team_id,
                 [
-                    "GOAL_ATTEMPTS",
-                    "TOTAL_SHOTS",
                     "SHOTS_TOTAL",
-                ]
+                    "TOTAL_SHOTS",
+                    "SHOTS",
+                    "GOAL_ATTEMPTS",
+                ],
+                [42]
             )
 
             sot = fixture_stat(
@@ -479,7 +457,10 @@ def fetch_average_stats(
                 team_id,
                 [
                     "SHOTS_ON_TARGET",
-                ]
+                    "SHOTS_ONTARGET",
+                    "ON_TARGET",
+                ],
+                [86]
             )
 
             fouls = fixture_stat(
@@ -487,7 +468,9 @@ def fetch_average_stats(
                 team_id,
                 [
                     "FOULS",
-                ]
+                    "FOULS_COMMITTED",
+                ],
+                [56]
             )
 
             yellow = fixture_stat(
@@ -508,12 +491,21 @@ def fetch_average_stats(
                 ]
             )
 
+            yellow_red = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "YELLOWRED_CARDS",
+                    "YELLOW_RED_CARDS",
+                ]
+            )
+
             totals["goals"] += goals
             totals["corners"] += corners
             totals["shots"] += shots
             totals["sot"] += sot
             totals["fouls"] += fouls
-            totals["cards"] += yellow + red
+            totals["cards"] += yellow + red + yellow_red
 
             used += 1
 
@@ -523,17 +515,11 @@ def fetch_average_stats(
     if used == 0:
         return None, 0
 
-    averages = {
+    return {
         key: round(value / used, 2)
         for key, value in totals.items()
-    }
+    }, used
 
-    return averages, used
-
-
-# =========================
-# ROTAS DO SITE
-# =========================
 
 @app.get("/")
 def index():
@@ -777,10 +763,6 @@ def lines(fixture_id):
         "lines": []
     })
 
-
-# =========================
-# INICIAR SERVIDOR
-# =========================
 
 if __name__ == "__main__":
 
