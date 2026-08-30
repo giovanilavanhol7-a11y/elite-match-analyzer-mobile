@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: elite-match-analyzer-mobile
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: APP_TIMEZONE
+        value: America/Sao_Paulo
+      - key: DEMO_MODE
+        value: "true"
+      - key: API_FOOTBALL_KEY
+        sync: false

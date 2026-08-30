@@ -1,0 +1,6 @@
+{
+  "project": "Elite Match Analyzer Mobile V2",
+  "timezone": "America/Sao_Paulo",
+  "provider": "API-FOOTBALL / API-SPORTS",
+  "note": "A chave da API deve ficar em variável de ambiente API_FOOTBALL_KEY. Nunca coloque sua chave neste arquivo."
+}
