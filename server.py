@@ -1087,3 +1087,176 @@ def analysis(fixture_id):
 
         league_id = league.get(
             "id"
+        )
+
+        home_id = home.get(
+            "id"
+        )
+
+        away_id = away.get(
+            "id"
+        )
+
+        home_data = team_averages(
+            league_id,
+            home_id,
+            fixture_id,
+            sample
+        )
+
+        away_data = team_averages(
+            league_id,
+            away_id,
+            fixture_id,
+            sample
+        )
+
+        h = home_data[
+            "averages"
+        ]
+
+        a = away_data[
+            "averages"
+        ]
+
+        stats = [
+            {
+                "key": "goals",
+                "label": "Gols",
+                "home": h.get("goals"),
+                "away": a.get("goals")
+            },
+            {
+                "key": "corners",
+                "label": "Escanteios",
+                "home": h.get("corners"),
+                "away": a.get("corners")
+            },
+            {
+                "key": "shots",
+                "label": "Finalizações",
+                "home": h.get("shots"),
+                "away": a.get("shots")
+            },
+            {
+                "key": "sot",
+                "label": "Chutes no gol",
+                "home": h.get("sot"),
+                "away": a.get("sot")
+            },
+            {
+                "key": "cards",
+                "label": "Cartões",
+                "home": h.get("cards"),
+                "away": a.get("cards")
+            },
+            {
+                "key": "fouls",
+                "label": "Faltas",
+                "home": h.get("fouls"),
+                "away": a.get("fouls")
+            }
+        ]
+
+        response = {
+            "source": "PITCHAPI",
+
+            "sample_size":
+                sample,
+
+            "home": {
+                "id": home_id,
+                "name": home.get(
+                    "name",
+                    "Mandante"
+                ),
+                "logo": home.get(
+                    "image_url",
+                    ""
+                ),
+                "matches_used":
+                    home_data[
+                        "matches_used"
+                    ],
+                "coverage":
+                    home_data[
+                        "coverage"
+                    ]
+            },
+
+            "away": {
+                "id": away_id,
+                "name": away.get(
+                    "name",
+                    "Visitante"
+                ),
+                "logo": away.get(
+                    "image_url",
+                    ""
+                ),
+                "matches_used":
+                    away_data[
+                        "matches_used"
+                    ],
+                "coverage":
+                    away_data[
+                        "coverage"
+                    ]
+            },
+
+            "stats": stats
+        }
+
+        cache_set(
+            cache_key,
+            response,
+            CACHE_ANALYSIS
+        )
+
+        return jsonify(
+            response
+        )
+
+    except Exception as e:
+
+        return jsonify({
+            "source": "PITCHAPI",
+            "sample_size": sample,
+            "stats": [],
+            "error": str(e)
+        }), 502
+
+
+# =========================================================
+# LINHAS DE APOSTA
+# =========================================================
+
+@app.get("/api/lines/<fixture_id>")
+def lines(fixture_id):
+
+    return jsonify({
+        "message":
+            "As sugestões serão ativadas "
+            "depois que validarmos as médias.",
+        "lines": []
+    })
+
+
+# =========================================================
+# START
+# =========================================================
+
+if __name__ == "__main__":
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "5000"
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
