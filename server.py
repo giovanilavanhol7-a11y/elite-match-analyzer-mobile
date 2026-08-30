@@ -1,15 +1,25 @@
 from flask import Flask, jsonify, request, send_from_directory
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 app = Flask(__name__, static_folder="static")
 
-API_KEY = os.getenv("API_FOOTBALL_KEY", "").strip()
-API_BASE = os.getenv("API_FOOTBALL_BASE", "https://v3.football.api-sports.io").rstrip("/")
+# =========================
+# CONFIGURAÇÃO SPORTMONKS
+# =========================
+
+API_KEY = os.getenv("SPORTMONKS_TOKEN", "").strip()
+API_BASE = "https://api.sportmonks.com/v3/football"
+
 TZ_NAME = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
-DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+
+# =========================
+# DADOS DE DEMONSTRAÇÃO
+# =========================
 
 DEMO_FIXTURES = [
     {
@@ -18,8 +28,16 @@ DEMO_FIXTURES = [
         "league_logo": "",
         "time": "16:00",
         "status": "NS",
-        "home": {"id": 1, "name": "Flamengo", "logo": ""},
-        "away": {"id": 2, "name": "Palmeiras", "logo": ""},
+        "home": {
+            "id": 1,
+            "name": "Flamengo",
+            "logo": ""
+        },
+        "away": {
+            "id": 2,
+            "name": "Palmeiras",
+            "logo": ""
+        },
         "demo": True,
     },
     {
@@ -28,11 +46,20 @@ DEMO_FIXTURES = [
         "league_logo": "",
         "time": "18:30",
         "status": "NS",
-        "home": {"id": 3, "name": "Manchester City", "logo": ""},
-        "away": {"id": 4, "name": "Liverpool", "logo": ""},
+        "home": {
+            "id": 3,
+            "name": "Manchester City",
+            "logo": ""
+        },
+        "away": {
+            "id": 4,
+            "name": "Liverpool",
+            "logo": ""
+        },
         "demo": True,
     },
 ]
+
 
 DEMO_ANALYSIS = {
     1001: {
@@ -65,202 +92,707 @@ DEMO_ANALYSIS = {
     },
 }
 
-def api_headers():
-    return {"x-apisports-key": API_KEY}
+
+# =========================
+# SPORTMONKS
+# =========================
 
 def api_get(path, params=None):
     if not API_KEY:
-        raise RuntimeError("API_FOOTBALL_KEY não configurada")
-    r = requests.get(f"{API_BASE}/{path.lstrip('/')}", headers=api_headers(), params=params or {}, timeout=20)
-    r.raise_for_status()
-    body = r.json()
-    errors = body.get("errors")
-    if errors:
-        raise RuntimeError(str(errors))
-    return body.get("response", [])
+        raise RuntimeError("SPORTMONKS_TOKEN não configurado")
+
+    query = dict(params or {})
+    query["api_token"] = API_KEY
+
+    url = f"{API_BASE}/{path.lstrip('/')}"
+
+    response = requests.get(
+        url,
+        params=query,
+        timeout=25
+    )
+
+    try:
+        body = response.json()
+    except Exception:
+        raise RuntimeError(
+            f"Resposta inválida da Sportmonks ({response.status_code})"
+        )
+
+    if not response.ok:
+        message = (
+            body.get("message")
+            or body.get("error")
+            or str(body)
+        )
+
+        raise RuntimeError(
+            f"Sportmonks: {message}"
+        )
+
+    return body.get("data")
+
+
+def api_get_list(path, params=None):
+    data = api_get(path, params)
+
+    if data is None:
+        return []
+
+    if isinstance(data, list):
+        return data
+
+    return [data]
+
+
+# =========================
+# UTILIDADES
+# =========================
+
+def local_fixture_time(starting_at):
+    if not starting_at:
+        return ""
+
+    try:
+        text = str(starting_at).replace("Z", "+00:00")
+
+        dt = datetime.fromisoformat(text)
+
+        # Sportmonks normalmente retorna horário UTC.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        dt = dt.astimezone(ZoneInfo(TZ_NAME))
+
+        return dt.strftime("%H:%M")
+
+    except Exception:
+        text = str(starting_at)
+
+        if len(text) >= 16:
+            return text[11:16]
+
+        return ""
+
+
+def get_home_away(participants):
+    home = None
+    away = None
+
+    for team in participants or []:
+        meta = team.get("meta") or {}
+        location = str(meta.get("location", "")).lower()
+
+        if location == "home":
+            home = team
+
+        elif location == "away":
+            away = team
+
+    # Segurança caso a API não envie meta.location
+    if not home and participants:
+        home = participants[0]
+
+    if not away and participants and len(participants) > 1:
+        away = participants[1]
+
+    return home or {}, away or {}
+
 
 def normalize_fixture(item):
-    fixture = item.get("fixture", {})
-    league = item.get("league", {})
-    teams = item.get("teams", {})
-    dt = fixture.get("date", "")
-    local_time = ""
-    try:
-        parsed = datetime.fromisoformat(dt.replace("Z", "+00:00")).astimezone(ZoneInfo(TZ_NAME))
-        local_time = parsed.strftime("%H:%M")
-    except Exception:
-        local_time = dt[11:16] if len(dt) >= 16 else ""
+    participants = item.get("participants") or []
+
+    home, away = get_home_away(participants)
+
+    league = item.get("league") or {}
+    state = item.get("state") or {}
+
+    status = (
+        state.get("short_name")
+        or state.get("developer_name")
+        or state.get("name")
+        or str(item.get("state_id", ""))
+    )
+
     return {
-        "id": fixture.get("id"),
-        "league": league.get("name", "Competição"),
-        "league_logo": league.get("logo", ""),
-        "time": local_time,
-        "status": (fixture.get("status") or {}).get("short", ""),
+        "id": item.get("id"),
+
+        "league": league.get(
+            "name",
+            "Competição"
+        ),
+
+        "league_logo": league.get(
+            "image_path",
+            ""
+        ),
+
+        "time": local_fixture_time(
+            item.get("starting_at")
+        ),
+
+        "status": status,
+
         "home": {
-            "id": (teams.get("home") or {}).get("id"),
-            "name": (teams.get("home") or {}).get("name", "Mandante"),
-            "logo": (teams.get("home") or {}).get("logo", ""),
+            "id": home.get("id"),
+            "name": home.get(
+                "name",
+                "Mandante"
+            ),
+            "logo": home.get(
+                "image_path",
+                ""
+            ),
         },
+
         "away": {
-            "id": (teams.get("away") or {}).get("id"),
-            "name": (teams.get("away") or {}).get("name", "Visitante"),
-            "logo": (teams.get("away") or {}).get("logo", ""),
+            "id": away.get("id"),
+            "name": away.get(
+                "name",
+                "Visitante"
+            ),
+            "logo": away.get(
+                "image_path",
+                ""
+            ),
         },
+
         "demo": False,
     }
 
-def stat_value(stats, stat_type):
-    for s in stats or []:
-        if s.get("type") == stat_type:
-            value = s.get("value")
-            if value is None:
-                return 0.0
-            if isinstance(value, str) and value.endswith("%"):
-                value = value[:-1]
-            try:
-                return float(value)
-            except Exception:
-                return 0.0
+
+# =========================
+# ESTATÍSTICAS
+# =========================
+
+def numeric_value(value):
+    if value is None:
+        return 0.0
+
+    if isinstance(value, bool):
+        return float(value)
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        try:
+            return float(
+                value.replace("%", "").strip()
+            )
+        except Exception:
+            return 0.0
+
+    if isinstance(value, dict):
+
+        for key in [
+            "total",
+            "count",
+            "value",
+            "goals",
+        ]:
+            if key in value:
+                try:
+                    return float(value[key] or 0)
+                except Exception:
+                    pass
+
     return 0.0
 
-def fetch_team_recent_fixture_ids(team_id, before_date, count=10):
-    season = datetime.now(ZoneInfo(TZ_NAME)).year
-    rows = api_get("fixtures", {
-        "team": team_id,
-        "last": count,
-        "season": season,
-        "status": "FT"
-    })
-    return [r.get("fixture", {}).get("id") for r in rows if r.get("fixture", {}).get("id")]
 
-def fetch_average_stats(team_id, fixture_ids):
-    totals = {"corners":0.0,"shots":0.0,"sot":0.0,"cards":0.0,"fouls":0.0,"goals":0.0}
+def fixture_stat(
+    fixture,
+    team_id,
+    developer_names
+):
+    wanted = {
+        str(x).upper()
+        for x in developer_names
+    }
+
+    for stat in fixture.get("statistics") or []:
+
+        participant_id = stat.get("participant_id")
+
+        if participant_id != team_id:
+            continue
+
+        type_info = stat.get("type") or {}
+
+        developer_name = str(
+            type_info.get("developer_name", "")
+        ).upper()
+
+        code = str(
+            type_info.get("code", "")
+        ).upper().replace("-", "_")
+
+        if (
+            developer_name in wanted
+            or code in wanted
+        ):
+            return numeric_value(
+                stat.get("data", stat.get("value"))
+            )
+
+    return 0.0
+
+
+def goals_for_team(fixture, team_id):
+    goals = []
+
+    for score in fixture.get("scores") or []:
+
+        if score.get("participant_id") != team_id:
+            continue
+
+        score_data = score.get("score") or {}
+
+        value = score_data.get("goals")
+
+        if value is not None:
+            try:
+                goals.append(float(value))
+            except Exception:
+                pass
+
+    if not goals:
+        return 0.0
+
+    # Pode haver placar do intervalo e placar final.
+    return max(goals)
+
+
+def fetch_team_recent_fixtures(
+    team_id,
+    count=10
+):
+    tz = ZoneInfo(TZ_NAME)
+
+    end_date = (
+        datetime.now(tz) - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+
+    start_date = (
+        datetime.now(tz) - timedelta(days=365)
+    ).strftime("%Y-%m-%d")
+
+    path = (
+        f"fixtures/between/"
+        f"{start_date}/"
+        f"{end_date}/"
+        f"{team_id}"
+    )
+
+    rows = api_get_list(
+        path,
+        {
+            "include": (
+                "participants;"
+                "statistics.type;"
+                "scores;"
+                "state"
+            ),
+            "order": "desc",
+            "per_page": 50,
+        }
+    )
+
+    completed = []
+
+    for fixture in rows:
+
+        state_id = fixture.get("state_id")
+
+        state = fixture.get("state") or {}
+
+        state_name = str(
+            state.get("developer_name", "")
+        ).upper()
+
+        # Sportmonks state_id 5 = finalizado.
+        if (
+            state_id == 5
+            or "FINISH" in state_name
+            or state_name in {
+                "FT",
+                "FULL_TIME"
+            }
+        ):
+            completed.append(fixture)
+
+        if len(completed) >= count:
+            break
+
+    # Caso o plano não forneça o include state,
+    # usa os primeiros jogos anteriores à data atual.
+    if not completed:
+        completed = rows[:count]
+
+    return completed[:count]
+
+
+def fetch_average_stats(
+    team_id,
+    fixtures
+):
+    totals = {
+        "goals": 0.0,
+        "corners": 0.0,
+        "shots": 0.0,
+        "sot": 0.0,
+        "cards": 0.0,
+        "fouls": 0.0,
+    }
+
     used = 0
-    for fixture_id in fixture_ids[:10]:
+
+    for fixture in fixtures:
+
         try:
-            stats_response = api_get("fixtures/statistics", {"fixture": fixture_id})
-            fixture_detail = api_get("fixtures", {"id": fixture_id})
-            if not fixture_detail:
-                continue
-            fixture_item = fixture_detail[0]
-            goals = fixture_item.get("goals") or {}
-            teams = fixture_item.get("teams") or {}
-            is_home = (teams.get("home") or {}).get("id") == team_id
-            team_stats = None
-            for row in stats_response:
-                if (row.get("team") or {}).get("id") == team_id:
-                    team_stats = row.get("statistics") or []
-                    break
-            if team_stats is None:
-                continue
-            totals["goals"] += float(goals.get("home" if is_home else "away") or 0)
-            totals["corners"] += stat_value(team_stats, "Corner Kicks")
-            totals["shots"] += stat_value(team_stats, "Total Shots")
-            totals["sot"] += stat_value(team_stats, "Shots on Goal")
-            totals["fouls"] += stat_value(team_stats, "Fouls")
-            yellow = stat_value(team_stats, "Yellow Cards")
-            red = stat_value(team_stats, "Red Cards")
+            goals = goals_for_team(
+                fixture,
+                team_id
+            )
+
+            corners = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "CORNERS",
+                    "CORNER_KICKS",
+                ]
+            )
+
+            shots = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "GOAL_ATTEMPTS",
+                    "TOTAL_SHOTS",
+                    "SHOTS_TOTAL",
+                ]
+            )
+
+            sot = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "SHOTS_ON_TARGET",
+                ]
+            )
+
+            fouls = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "FOULS",
+                ]
+            )
+
+            yellow = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "YELLOWCARDS",
+                    "YELLOW_CARDS",
+                ]
+            )
+
+            red = fixture_stat(
+                fixture,
+                team_id,
+                [
+                    "REDCARDS",
+                    "RED_CARDS",
+                ]
+            )
+
+            totals["goals"] += goals
+            totals["corners"] += corners
+            totals["shots"] += shots
+            totals["sot"] += sot
+            totals["fouls"] += fouls
             totals["cards"] += yellow + red
+
             used += 1
+
         except Exception:
             continue
+
     if used == 0:
         return None, 0
-    return {k: round(v/used, 2) for k,v in totals.items()}, used
+
+    averages = {
+        key: round(value / used, 2)
+        for key, value in totals.items()
+    }
+
+    return averages, used
+
+
+# =========================
+# ROTAS DO SITE
+# =========================
 
 @app.get("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(
+        "static",
+        "index.html"
+    )
+
 
 @app.get("/api/health")
 def health():
     return jsonify({
         "ok": True,
+        "provider": "Sportmonks",
         "api_configured": bool(API_KEY),
         "demo_mode": DEMO_MODE,
         "timezone": TZ_NAME,
     })
 
+
 @app.get("/api/fixtures/today")
 def fixtures_today():
+
     if DEMO_MODE or not API_KEY:
+
         return jsonify({
             "mode": "demo",
-            "message": "Modo demonstração: configure API_FOOTBALL_KEY para usar partidas reais.",
+            "message": (
+                "Modo demonstração: "
+                "configure SPORTMONKS_TOKEN "
+                "para usar partidas reais."
+            ),
             "fixtures": DEMO_FIXTURES,
         })
+
     try:
-        today = datetime.now(ZoneInfo(TZ_NAME)).strftime("%Y-%m-%d")
-        rows = api_get("fixtures", {"date": today, "timezone": TZ_NAME})
-        fixtures = [normalize_fixture(x) for x in rows]
-        return jsonify({"mode": "live", "message": "", "fixtures": fixtures})
+        today = datetime.now(
+            ZoneInfo(TZ_NAME)
+        ).strftime("%Y-%m-%d")
+
+        rows = api_get_list(
+            f"fixtures/date/{today}",
+            {
+                "include": (
+                    "participants;"
+                    "league;"
+                    "state"
+                ),
+                "per_page": 50,
+            }
+        )
+
+        fixtures = [
+            normalize_fixture(row)
+            for row in rows
+        ]
+
+        fixtures.sort(
+            key=lambda x: x.get("time") or "99:99"
+        )
+
+        return jsonify({
+            "mode": "live",
+            "message": "",
+            "fixtures": fixtures,
+        })
+
     except Exception as e:
-        return jsonify({"mode": "error", "message": str(e), "fixtures": []}), 502
+
+        return jsonify({
+            "mode": "error",
+            "message": str(e),
+            "fixtures": [],
+        }), 502
+
 
 @app.get("/api/analysis/<int:fixture_id>")
 def analysis(fixture_id):
-    sample = request.args.get("sample", "10")
+
+    sample = request.args.get(
+        "sample",
+        "10"
+    )
+
     try:
-        sample = 5 if int(sample) == 5 else 10
+        sample = (
+            5
+            if int(sample) == 5
+            else 10
+        )
     except Exception:
         sample = 10
 
     if DEMO_MODE or not API_KEY:
-        demo = DEMO_ANALYSIS.get(fixture_id)
+
+        demo = DEMO_ANALYSIS.get(
+            fixture_id
+        )
+
         if not demo:
-            return jsonify({"error": "Partida de demonstração não encontrada."}), 404
+            return jsonify({
+                "error": (
+                    "Partida de demonstração "
+                    "não encontrada."
+                )
+            }), 404
+
         response = dict(demo)
+
         response["sample_size"] = sample
+
         return jsonify(response)
 
     try:
-        rows = api_get("fixtures", {"id": fixture_id})
-        if not rows:
-            return jsonify({"error": "Partida não encontrada."}), 404
-        item = rows[0]
-        teams = item.get("teams") or {}
-        home = teams.get("home") or {}
-        away = teams.get("away") or {}
+        item = api_get(
+            f"fixtures/{fixture_id}",
+            {
+                "include": (
+                    "participants;"
+                    "league;"
+                    "state"
+                )
+            }
+        )
 
-        home_ids = fetch_team_recent_fixture_ids(home.get("id"), None, sample)
-        away_ids = fetch_team_recent_fixture_ids(away.get("id"), None, sample)
+        if not item:
+            return jsonify({
+                "error": "Partida não encontrada."
+            }), 404
 
-        home_avg, home_used = fetch_average_stats(home.get("id"), home_ids)
-        away_avg, away_used = fetch_average_stats(away.get("id"), away_ids)
+        participants = (
+            item.get("participants")
+            or []
+        )
+
+        home, away = get_home_away(
+            participants
+        )
+
+        home_id = home.get("id")
+        away_id = away.get("id")
+
+        if not home_id or not away_id:
+            return jsonify({
+                "error": (
+                    "Não foi possível identificar "
+                    "mandante e visitante."
+                )
+            }), 422
+
+        home_fixtures = (
+            fetch_team_recent_fixtures(
+                home_id,
+                sample
+            )
+        )
+
+        away_fixtures = (
+            fetch_team_recent_fixtures(
+                away_id,
+                sample
+            )
+        )
+
+        home_avg, home_used = (
+            fetch_average_stats(
+                home_id,
+                home_fixtures
+            )
+        )
+
+        away_avg, away_used = (
+            fetch_average_stats(
+                away_id,
+                away_fixtures
+            )
+        )
 
         if not home_avg or not away_avg:
-            return jsonify({"error": "Não foi possível calcular estatísticas suficientes para esta partida."}), 422
+            return jsonify({
+                "error": (
+                    "Não foi possível calcular "
+                    "estatísticas suficientes "
+                    "para esta partida."
+                )
+            }), 422
 
         order = [
-            ("goals","Gols"),
-            ("corners","Escanteios"),
-            ("shots","Finalizações"),
-            ("sot","Chutes no gol"),
-            ("cards","Cartões"),
-            ("fouls","Faltas"),
+            ("goals", "Gols"),
+            ("corners", "Escanteios"),
+            ("shots", "Finalizações"),
+            ("sot", "Chutes no gol"),
+            ("cards", "Cartões"),
+            ("fouls", "Faltas"),
         ]
+
         stats = [
-            {"key":k, "label":label, "home":home_avg[k], "away":away_avg[k]}
-            for k,label in order
+            {
+                "key": key,
+                "label": label,
+                "home": home_avg[key],
+                "away": away_avg[key],
+            }
+            for key, label in order
         ]
 
         return jsonify({
-            "source": "API-FOOTBALL",
-            "sample_size": min(home_used, away_used),
-            "home": home.get("name"),
-            "away": away.get("name"),
+            "source": "SPORTMONKS",
+            "sample_size": min(
+                home_used,
+                away_used
+            ),
+            "home": home.get(
+                "name",
+                "Mandante"
+            ),
+            "away": away.get(
+                "name",
+                "Visitante"
+            ),
             "stats": stats,
         })
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+
+        return jsonify({
+            "error": str(e)
+        }), 502
+
 
 @app.get("/api/lines/<int:fixture_id>")
 def lines(fixture_id):
+
     return jsonify({
-        "message": "As linhas automáticas serão habilitadas somente depois que validarmos os dados reais da partida.",
+        "message": (
+            "As linhas automáticas serão "
+            "habilitadas somente depois "
+            "que validarmos os dados "
+            "reais da partida."
+        ),
         "lines": []
     })
 
+
+# =========================
+# INICIAR SERVIDOR
+# =========================
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=False)
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "5000"
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
