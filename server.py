@@ -72,8 +72,16 @@ def api_get(path):
         )
 
     if not response.ok:
+        message = None
+
+        if isinstance(body, dict):
+            message = (
+                body.get("message")
+                or body.get("error")
+            )
+
         raise RuntimeError(
-            str(body.get("message") or body.get("error") or body)
+            str(message or body)
         )
 
     if isinstance(body, dict) and "data" in body:
@@ -87,7 +95,7 @@ def api_get(path):
 
 
 # =========================================================
-# NÚMEROS
+# AUXILIARES
 # =========================================================
 
 def number(value):
@@ -122,12 +130,11 @@ def average(values):
     if not valid:
         return None
 
-    return round(sum(valid) / len(valid), 2)
+    return round(
+        sum(valid) / len(valid),
+        2
+    )
 
-
-# =========================================================
-# HORÁRIO
-# =========================================================
 
 def match_time(value):
     if not value:
@@ -149,7 +156,7 @@ def match_time(value):
 
 
 # =========================================================
-# NORMALIZAR PARTIDA
+# NORMALIZAR JOGO
 # =========================================================
 
 def normalize_match(match):
@@ -159,22 +166,50 @@ def normalize_match(match):
 
     return {
         "id": match.get("id"),
-        "league": league.get("name", "Competição"),
+
+        "league": league.get(
+            "name",
+            "Competição"
+        ),
+
         "league_id": league.get("id"),
-        "league_logo": league.get("image_url", ""),
-        "time": match_time(match.get("time_utc")),
-        "status": match.get("status", ""),
+
+        "league_logo": league.get(
+            "image_url",
+            ""
+        ),
+
+        "time": match_time(
+            match.get("time_utc")
+        ),
+
+        "status": match.get(
+            "status",
+            ""
+        ),
 
         "home": {
             "id": home.get("id"),
-            "name": home.get("name", "Mandante"),
-            "logo": home.get("image_url", "")
+            "name": home.get(
+                "name",
+                "Mandante"
+            ),
+            "logo": home.get(
+                "image_url",
+                ""
+            )
         },
 
         "away": {
             "id": away.get("id"),
-            "name": away.get("name", "Visitante"),
-            "logo": away.get("image_url", "")
+            "name": away.get(
+                "name",
+                "Visitante"
+            ),
+            "logo": away.get(
+                "image_url",
+                ""
+            )
         },
 
         "demo": False
@@ -196,11 +231,10 @@ def get_stats(match_id):
     if not isinstance(data, dict):
         return {}
 
-    periods = data.get("periods") or []
-
     result = {}
 
-    for period in periods:
+    for period in data.get("periods") or []:
+
         period_name = str(
             period.get("period", "")
         ).lower()
@@ -214,6 +248,7 @@ def get_stats(match_id):
             continue
 
         for group in period.get("groups") or []:
+
             for item in group.get("items") or []:
 
                 key = str(
@@ -229,8 +264,12 @@ def get_stats(match_id):
 
                 result[key] = {
                     "title": title,
-                    "home": number(item.get("home")),
-                    "away": number(item.get("away"))
+                    "home": number(
+                        item.get("home")
+                    ),
+                    "away": number(
+                        item.get("away")
+                    )
                 }
 
     return result
@@ -238,7 +277,10 @@ def get_stats(match_id):
 
 def exact_stat(stats, keys, home_side):
     for key in keys:
-        item = stats.get(key)
+
+        item = stats.get(
+            key.lower()
+        )
 
         if item:
             return (
@@ -251,7 +293,7 @@ def exact_stat(stats, keys, home_side):
 
 
 # =========================================================
-# SHOTS
+# FINALIZAÇÕES E CHUTES NO GOL
 # =========================================================
 
 def get_shots(match_id, team_id):
@@ -259,6 +301,7 @@ def get_shots(match_id, team_id):
         data = api_get(
             f"v1/matches/{match_id}/shots"
         )
+
     except Exception:
         return {
             "shots": None,
@@ -279,21 +322,34 @@ def get_shots(match_id, team_id):
             "sot": None
         }
 
-    total = 0
-    on_target = 0
+    total_shots = 0
+    shots_on_target = 0
     found_team = False
 
     for period in periods:
+
         for shot in period.get("shots") or []:
 
             if shot.get("team_id") != team_id:
                 continue
 
             found_team = True
-            total += 1
+            total_shots += 1
 
-            if shot.get("is_on_target") is True:
-                on_target += 1
+            event_type = str(
+                shot.get(
+                    "event_type",
+                    ""
+                )
+            ).strip().lower()
+
+            # Chute no gol:
+            # gol ou defesa do goleiro.
+            if event_type in (
+                "goal",
+                "attemptsaved"
+            ):
+                shots_on_target += 1
 
     if not found_team:
         return {
@@ -302,8 +358,8 @@ def get_shots(match_id, team_id):
         }
 
     return {
-        "shots": float(total),
-        "sot": float(on_target)
+        "shots": float(total_shots),
+        "sot": float(shots_on_target)
     }
 
 
@@ -316,6 +372,7 @@ def get_cards(match_id, team_id):
         data = api_get(
             f"v1/matches/{match_id}/events"
         )
+
     except Exception:
         return None
 
@@ -330,12 +387,16 @@ def get_cards(match_id, team_id):
     total = 0
 
     for event in events:
+
         if event.get("team_id") != team_id:
             continue
 
         event_type = str(
-            event.get("event_type", "")
-        ).lower()
+            event.get(
+                "event_type",
+                ""
+            )
+        ).strip().lower()
 
         if event_type in (
             "yellowcard",
@@ -360,6 +421,7 @@ def recent_matches(
         data = api_get(
             f"v1/leagues/{league_id}/matches"
         )
+
     except Exception:
         return []
 
@@ -371,6 +433,7 @@ def recent_matches(
     result = []
 
     for match in matches:
+
         if match.get("id") == current_id:
             continue
 
@@ -384,7 +447,10 @@ def recent_matches(
             continue
 
         status = str(
-            match.get("status", "")
+            match.get(
+                "status",
+                ""
+            )
         ).lower()
 
         if status not in (
@@ -412,7 +478,7 @@ def recent_matches(
 
 
 # =========================================================
-# DADOS DE UMA PARTIDA
+# DADOS DE UM TIME EM UM JOGO
 # =========================================================
 
 def team_match_values(match, team_id):
@@ -421,14 +487,22 @@ def team_match_values(match, team_id):
     home = match.get("home_team") or {}
     away = match.get("away_team") or {}
 
-    home_side = home.get("id") == team_id
+    home_side = (
+        home.get("id") == team_id
+    )
 
     if home_side:
-        goals = number(match.get("score_home"))
+        goals = number(
+            match.get("score_home")
+        )
     else:
-        goals = number(match.get("score_away"))
+        goals = number(
+            match.get("score_away")
+        )
 
-    stats = get_stats(match_id)
+    stats = get_stats(
+        match_id
+    )
 
     corners = exact_stat(
         stats,
@@ -469,7 +543,7 @@ def team_match_values(match, team_id):
 
 
 # =========================================================
-# MÉDIAS DO TIME
+# MÉDIAS
 # =========================================================
 
 def team_average(
@@ -495,6 +569,7 @@ def team_average(
     }
 
     for match in matches:
+
         row = team_match_values(
             match,
             team_id
@@ -507,7 +582,8 @@ def team_average(
 
     averages = {
         key: average(value)
-        for key, value in values.items()
+        for key, value
+        in values.items()
     }
 
     coverage = {
@@ -516,7 +592,8 @@ def team_average(
             for x in value
             if x is not None
         ])
-        for key, value in values.items()
+        for key, value
+        in values.items()
     }
 
     return {
@@ -547,7 +624,9 @@ def health():
     return jsonify({
         "ok": True,
         "provider": "PITCHAPI",
-        "api_configured": bool(API_KEY),
+        "api_configured": bool(
+            API_KEY
+        ),
         "demo_mode": False,
         "timezone": TIMEZONE
     })
@@ -571,7 +650,10 @@ def fixtures_today():
         matches = []
 
         if isinstance(data, dict):
-            matches = data.get("matches") or []
+            matches = (
+                data.get("matches")
+                or []
+            )
 
         fixtures = [
             normalize_match(match)
@@ -585,6 +667,7 @@ def fixtures_today():
         })
 
     except Exception as error:
+
         return jsonify({
             "mode": "error",
             "message": str(error),
@@ -598,10 +681,15 @@ def fixtures_today():
 
 @app.get("/api/analysis/<fixture_id>")
 def analysis(fixture_id):
+
     try:
         sample = int(
-            request.args.get("sample", 10)
+            request.args.get(
+                "sample",
+                10
+            )
         )
+
     except Exception:
         sample = 10
 
@@ -613,14 +701,25 @@ def analysis(fixture_id):
             f"v1/matches/{fixture_id}"
         )
 
-        if not isinstance(fixture, dict):
+        if not isinstance(
+            fixture,
+            dict
+        ):
             raise RuntimeError(
                 "Partida não encontrada."
             )
 
-        league = fixture.get("league") or {}
-        home = fixture.get("home_team") or {}
-        away = fixture.get("away_team") or {}
+        league = fixture.get(
+            "league"
+        ) or {}
+
+        home = fixture.get(
+            "home_team"
+        ) or {}
+
+        away = fixture.get(
+            "away_team"
+        ) or {}
 
         league_id = league.get("id")
         home_id = home.get("id")
@@ -697,9 +796,13 @@ def analysis(fixture_id):
                     ""
                 ),
                 "matches_used":
-                    home_data["matches_used"],
+                    home_data[
+                        "matches_used"
+                    ],
                 "coverage":
-                    home_data["coverage"]
+                    home_data[
+                        "coverage"
+                    ]
             },
 
             "away": {
@@ -713,15 +816,20 @@ def analysis(fixture_id):
                     ""
                 ),
                 "matches_used":
-                    away_data["matches_used"],
+                    away_data[
+                        "matches_used"
+                    ],
                 "coverage":
-                    away_data["coverage"]
+                    away_data[
+                        "coverage"
+                    ]
             },
 
             "stats": stats
         })
 
     except Exception as error:
+
         return jsonify({
             "source": "PITCHAPI",
             "sample_size": sample,
@@ -731,11 +839,12 @@ def analysis(fixture_id):
 
 
 # =========================================================
-# DEBUG SHOTS
+# DEBUG DOS CHUTES
 # =========================================================
 
 @app.get("/api/debug/shots/<fixture_id>")
 def debug_shots(fixture_id):
+
     try:
         data = api_get(
             f"v1/matches/{fixture_id}/shots"
@@ -747,6 +856,7 @@ def debug_shots(fixture_id):
         })
 
     except Exception as error:
+
         return jsonify({
             "ok": False,
             "error": str(error)
@@ -759,6 +869,7 @@ def debug_shots(fixture_id):
 
 @app.get("/api/lines/<fixture_id>")
 def lines(fixture_id):
+
     return jsonify({
         "message":
             "Aguardando validação das estatísticas.",
@@ -771,8 +882,12 @@ def lines(fixture_id):
 # =========================================================
 
 if __name__ == "__main__":
+
     port = int(
-        os.getenv("PORT", "5000")
+        os.getenv(
+            "PORT",
+            "5000"
+        )
     )
 
     app.run(
