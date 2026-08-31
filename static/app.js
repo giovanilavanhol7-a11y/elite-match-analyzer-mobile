@@ -15,14 +15,6 @@ let currentSample = 10;
 const MIN_PRODUCED_RATE = 75;
 const MIN_CONCEDED_RATE = 75;
 const MIN_CROSS_RATE = 80;
-
-/*
-  Para uma linha poder virar
-  SUGESTÃO PRINCIPAL,
-  exigimos pelo menos 4 jogos
-  válidos no recorte recente.
-*/
-
 const MIN_RECENT_GAMES = 4;
 
 
@@ -120,6 +112,55 @@ function clamp(value, min, max) {
     max,
     Math.max(min, value)
   );
+}
+
+
+/* ======================================================
+   TEXTO CORRETO DO ADVERSÁRIO
+
+   Gols / escanteios / finalizações:
+   "Cruzeiro concede"
+
+   Cartões / faltas:
+   "Adversários do Cruzeiro"
+====================================================== */
+
+function usesOpponentHistoryWording(metric) {
+  return [
+    "yellow_cards",
+    "red_cards",
+    "cards",
+    "fouls"
+  ].includes(metric);
+}
+
+
+function opponentLabel(
+  item,
+  opponent
+) {
+  if (
+    usesOpponentHistoryWording(
+      item.metric
+    )
+  ) {
+    return `Adversários do ${opponent}`;
+  }
+
+  return `${opponent} concede`;
+}
+
+
+function opponentAverageLabel(item) {
+  if (
+    usesOpponentHistoryWording(
+      item.metric
+    )
+  ) {
+    return "Média dos adversários";
+  }
+
+  return "Média cedida";
 }
 
 
@@ -728,8 +769,7 @@ function trendBlock(
           margin-top:10px;
           padding:11px;
           border-radius:10px;
-          background:
-          rgba(255,255,255,.035);
+          background:rgba(255,255,255,.035);
           font-size:12px;
           opacity:.75;
         "
@@ -815,6 +855,14 @@ function trendBlock(
   }
 
 
+  const opponentText =
+    usesOpponentHistoryWording(
+      item.metric
+    )
+      ? "Histórico adversário"
+      : "Adversário concede";
+
+
   return `
 
     <div
@@ -822,16 +870,14 @@ function trendBlock(
         margin-top:10px;
         padding:12px;
         border-radius:10px;
-        background:
-        rgba(255,255,255,.045);
+        background:rgba(255,255,255,.045);
       "
     >
 
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:center;
           gap:10px;
           margin-bottom:10px;
@@ -862,8 +908,7 @@ function trendBlock(
       <div
         style="
           display:grid;
-          grid-template-columns:
-          1fr 1fr;
+          grid-template-columns:1fr 1fr;
           gap:8px;
         "
       >
@@ -872,8 +917,7 @@ function trendBlock(
           style="
             padding:9px;
             border-radius:9px;
-            background:
-            rgba(255,255,255,.035);
+            background:rgba(255,255,255,.035);
           "
         >
 
@@ -901,8 +945,7 @@ function trendBlock(
           style="
             padding:9px;
             border-radius:9px;
-            background:
-            rgba(255,255,255,.035);
+            background:rgba(255,255,255,.035);
           "
         >
 
@@ -958,7 +1001,7 @@ function trendBlock(
         <br>
 
 
-        Adversário concede:
+        ${opponentText}:
 
         <strong>
           ${formatRate(
@@ -983,12 +1026,9 @@ function trendBlock(
         style="
           margin-top:9px;
           padding-top:9px;
-          border-top:
-          1px solid
-          rgba(255,255,255,.07);
+          border-top:1px solid rgba(255,255,255,.07);
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           gap:10px;
           font-size:12px;
         "
@@ -1014,8 +1054,7 @@ function trendBlock(
         style="
           margin-top:7px;
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           gap:10px;
           font-size:12px;
         "
@@ -1143,7 +1182,7 @@ function rejectionReasons(item) {
   ) {
 
     reasons.push(
-      `adversário concede menos de ${MIN_CONCEDED_RATE}%`
+      `histórico do adversário abaixo de ${MIN_CONCEDED_RATE}%`
     );
 
   }
@@ -1244,19 +1283,153 @@ function prepareTeamLines(
 
 
 /* ======================================================
-   UMA LINHA POR MÉTRICA
+   MELHOR LINHA APROVADA POR MÉTRICA
+
+   REGRA NOVA:
+
+   1. A linha PRECISA passar 75 / 75 / 80.
+   2. Entre as aprovadas da mesma métrica,
+      escolhemos PRIMEIRO a linha mais alta.
+   3. Só depois usamos índice e força
+      como desempate.
+
+   Exemplo:
+   +0.5 amarelos aprovado
+   +1.5 amarelos aprovado
+   +2.5 amarelos reprovado
+
+   Resultado:
+   escolhe +1.5 amarelos.
 ====================================================== */
 
-function chooseBestPerMetric(items) {
+function chooseHighestApprovedPerMetric(
+  items
+) {
   const groups = {};
 
 
-  (items || []).forEach(
+  const approved =
+    (items || []).filter(
+      linePassesFilters
+    );
+
+
+  approved.forEach(
     candidate => {
 
       const metric =
         candidate.metric ||
         candidate.label;
+
+
+      const current =
+        groups[metric];
+
+
+      if (!current) {
+
+        groups[metric] =
+          candidate;
+
+        return;
+      }
+
+
+      if (
+        candidate.threshold >
+        current.threshold
+      ) {
+
+        groups[metric] =
+          candidate;
+
+        return;
+      }
+
+
+      if (
+        candidate.threshold ===
+          current.threshold &&
+        (candidate.index ?? -1) >
+        (current.index ?? -1)
+      ) {
+
+        groups[metric] =
+          candidate;
+
+        return;
+      }
+
+
+      if (
+        candidate.threshold ===
+          current.threshold &&
+        (candidate.index ?? -1) ===
+          (current.index ?? -1) &&
+        Number(
+          candidate.cross_rate || 0
+        ) >
+        Number(
+          current.cross_rate || 0
+        )
+      ) {
+
+        groups[metric] =
+          candidate;
+
+      }
+
+    }
+  );
+
+
+  return Object.values(
+    groups
+  );
+}
+
+
+/* ======================================================
+   MELHOR DESCARTADA POR MÉTRICA
+
+   Só mostramos como descartada uma métrica
+   que NÃO tenha nenhuma linha aprovada.
+
+   Isso evita, por exemplo:
+   +1.5 aprovado
+   +2.5 reprovado
+
+   aparecer simultaneamente como oportunidade
+   e como descarte da mesma métrica.
+====================================================== */
+
+function chooseDiscardedPerMetric(
+  items,
+  approvedMetrics
+) {
+  const groups = {};
+
+
+  const rejected =
+    (items || []).filter(
+      item =>
+        !linePassesFilters(item)
+    );
+
+
+  rejected.forEach(
+    candidate => {
+
+      const metric =
+        candidate.metric ||
+        candidate.label;
+
+
+      if (
+        approvedMetrics.has(metric)
+      ) {
+        return;
+      }
 
 
       const current =
@@ -1403,7 +1576,7 @@ function sortOpportunities(items) {
 
 
 /* ======================================================
-   CLASSIFICAR OPORTUNIDADES DA ABA
+   CLASSIFICAR OPORTUNIDADES
 ====================================================== */
 
 function classifyOpportunities(data) {
@@ -1433,39 +1606,60 @@ function classifyOpportunities(data) {
     );
 
 
-  const homeBest =
-    chooseBestPerMetric(
+  const homeApproved =
+    chooseHighestApprovedPerMetric(
       homeItems
     );
 
 
-  const awayBest =
-    chooseBestPerMetric(
+  const awayApproved =
+    chooseHighestApprovedPerMetric(
       awayItems
     );
 
 
-  const allBest = [
-    ...homeBest,
-    ...awayBest
-  ];
-
-
   const approved =
-    sortOpportunities(
-      allBest.filter(
-        linePassesFilters
+    sortOpportunities([
+      ...homeApproved,
+      ...awayApproved
+    ]);
+
+
+  const homeApprovedMetrics =
+    new Set(
+      homeApproved.map(
+        item => item.metric
       )
+    );
+
+
+  const awayApprovedMetrics =
+    new Set(
+      awayApproved.map(
+        item => item.metric
+      )
+    );
+
+
+  const homeDiscarded =
+    chooseDiscardedPerMetric(
+      homeItems,
+      homeApprovedMetrics
+    );
+
+
+  const awayDiscarded =
+    chooseDiscardedPerMetric(
+      awayItems,
+      awayApprovedMetrics
     );
 
 
   const discarded =
-    sortOpportunities(
-      allBest.filter(
-        item =>
-          !linePassesFilters(item)
-      )
-    );
+    sortOpportunities([
+      ...homeDiscarded,
+      ...awayDiscarded
+    ]);
 
 
   return {
@@ -1487,10 +1681,7 @@ function classifyOpportunities(data) {
 /* ======================================================
    CANDIDATOS DA SUGESTÃO PRINCIPAL
 
-   A sugestão usa sempre o recorte
-   de até 10 jogos como base,
-   mesmo quando a pessoa toca
-   na aba "Últimos 5".
+   SEMPRE USA ÚLTIMOS 10 COMO BASE.
 ====================================================== */
 
 function primaryCandidates(data) {
@@ -1537,37 +1728,26 @@ function primaryCandidates(data) {
 
 
   const homeBest =
-    chooseBestPerMetric(
+    chooseHighestApprovedPerMetric(
       homeItems
     );
 
 
   const awayBest =
-    chooseBestPerMetric(
+    chooseHighestApprovedPerMetric(
       awayItems
     );
 
 
-  return sortOpportunities(
-    [
-      ...homeBest,
-      ...awayBest
-    ].filter(
-      linePassesFilters
-    )
-  );
+  return sortOpportunities([
+    ...homeBest,
+    ...awayBest
+  ]);
 }
 
 
 /* ======================================================
    FILTRO RECENTE DA SUGESTÃO PRINCIPAL
-
-   Para virar sugestão principal:
-
-   - passou nos 10
-   - passou nos 5
-   - pelo menos 4 jogos recentes válidos
-   - não está enfraquecendo
 ====================================================== */
 
 function passesRecentPrimaryFilter(
@@ -1669,7 +1849,7 @@ function passesRecentPrimaryFilter(
 
 
 /* ======================================================
-   ESCOLHER UMA ÚNICA SUGESTÃO
+   SUGESTÃO PRINCIPAL
 ====================================================== */
 
 function selectPrimarySuggestion(data) {
@@ -1715,11 +1895,8 @@ function primarySuggestionCard(
           margin-bottom:22px;
           padding:15px;
           border-radius:14px;
-          border:
-          1px solid
-          rgba(255,255,255,.09);
-          background:
-          rgba(255,255,255,.035);
+          border:1px solid rgba(255,255,255,.09);
+          background:rgba(255,255,255,.035);
         "
       >
 
@@ -1742,17 +1919,16 @@ function primarySuggestionCard(
           "
         >
 
-          Nenhuma linha passou ao
-          mesmo tempo pelos filtros
-          dos Últimos 10 e dos
-          Últimos 5 com força
-          suficiente.
+          Nenhuma linha passou ao mesmo
+          tempo pelos filtros dos
+          Últimos 10 e dos Últimos 5
+          com força suficiente.
 
           <br><br>
 
-          Nesse caso o sistema
-          prefere não destacar uma
-          sugestão principal.
+          Nesse caso o sistema prefere
+          não destacar uma sugestão
+          principal.
 
         </div>
 
@@ -1776,6 +1952,13 @@ function primarySuggestionCard(
     item.team === homeName
       ? awayName
       : homeName;
+
+
+  const opponentText =
+    opponentLabel(
+      item,
+      opponent
+    );
 
 
   const trend =
@@ -1826,19 +2009,15 @@ function primarySuggestionCard(
         margin-bottom:24px;
         padding:16px;
         border-radius:16px;
-        border:
-        1px solid
-        rgba(255,255,255,.12);
-        background:
-        rgba(255,255,255,.055);
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(255,255,255,.055);
       "
     >
 
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:flex-start;
           gap:12px;
         "
@@ -1863,7 +2042,7 @@ function primarySuggestionCard(
               opacity:.7;
             "
           >
-            MELHOR CRUZAMENTO APROVADO
+            MAIOR LINHA SEGURA APROVADA
           </div>
 
         </div>
@@ -1878,8 +2057,7 @@ function primarySuggestionCard(
           <strong
             style="
               font-size:22px;
-              color:
-              ${lineColor(
+              color:${lineColor(
                 item.cross_rate
               )};
             "
@@ -1912,8 +2090,7 @@ function primarySuggestionCard(
           margin-top:18px;
           padding:14px;
           border-radius:12px;
-          background:
-          rgba(255,255,255,.05);
+          background:rgba(255,255,255,.05);
         "
       >
 
@@ -1949,6 +2126,7 @@ function primarySuggestionCard(
         >
 
           ${info.icon}
+
           <strong>
             ${info.label}
           </strong>
@@ -1961,8 +2139,7 @@ function primarySuggestionCard(
       <div
         style="
           display:grid;
-          grid-template-columns:
-          1fr 1fr;
+          grid-template-columns:1fr 1fr;
           gap:8px;
           margin-top:10px;
         "
@@ -1972,8 +2149,7 @@ function primarySuggestionCard(
           style="
             padding:11px;
             border-radius:10px;
-            background:
-            rgba(255,255,255,.04);
+            background:rgba(255,255,255,.04);
           "
         >
 
@@ -2008,8 +2184,7 @@ function primarySuggestionCard(
           style="
             padding:11px;
             border-radius:10px;
-            background:
-            rgba(255,255,255,.04);
+            background:rgba(255,255,255,.04);
           "
         >
 
@@ -2046,8 +2221,7 @@ function primarySuggestionCard(
           margin-top:10px;
           padding:12px;
           border-radius:10px;
-          background:
-          rgba(255,255,255,.035);
+          background:rgba(255,255,255,.035);
           font-size:12px;
           line-height:1.7;
         "
@@ -2074,7 +2248,7 @@ function primarySuggestionCard(
         <br>
 
 
-        ${opponent} concede:
+        ${opponentText}:
 
         <strong>
           ${formatRate(
@@ -2099,22 +2273,21 @@ function primarySuggestionCard(
         style="
           margin-top:12px;
           padding-top:12px;
-          border-top:
-          1px solid
-          rgba(255,255,255,.08);
+          border-top:1px solid rgba(255,255,255,.08);
           font-size:12px;
           line-height:1.6;
           opacity:.75;
         "
       >
 
-        Esta é a linha que melhor
-        passou pelos filtros históricos
-        e recentes do sistema.
+        O sistema prioriza a linha
+        mais alta da mesma métrica
+        que ainda mantém os filtros
+        históricos e recentes.
 
-        É uma sugestão baseada em dados
-        passados, não uma garantia de
-        resultado.
+        É uma sugestão baseada em
+        dados passados, não uma
+        garantia de resultado.
 
       </div>
 
@@ -2149,6 +2322,19 @@ function opportunityCard(
       : homeName;
 
 
+  const opponentText =
+    opponentLabel(
+      item,
+      opponent
+    );
+
+
+  const averageText =
+    opponentAverageLabel(
+      item
+    );
+
+
   const produced =
     item.produced || {};
 
@@ -2169,8 +2355,7 @@ function opportunityCard(
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:flex-start;
           gap:12px;
         "
@@ -2219,8 +2404,7 @@ function opportunityCard(
           <strong
             style="
               font-size:20px;
-              color:
-              ${lineColor(
+              color:${lineColor(
                 item.cross_rate
               )};
             "
@@ -2280,8 +2464,7 @@ function opportunityCard(
           margin-top:14px;
           padding:11px;
           border-radius:10px;
-          background:
-          rgba(255,255,255,.04);
+          background:rgba(255,255,255,.04);
         "
       >
 
@@ -2351,8 +2534,7 @@ function opportunityCard(
           margin-top:8px;
           padding:11px;
           border-radius:10px;
-          background:
-          rgba(255,255,255,.04);
+          background:rgba(255,255,255,.04);
         "
       >
 
@@ -2364,7 +2546,7 @@ function opportunityCard(
           "
         >
 
-          ${opponent} concede
+          ${opponentText}
 
         </div>
 
@@ -2404,7 +2586,7 @@ function opportunityCard(
                   opacity:.75;
                 "
               >
-                Média cedida:
+                ${averageText}:
                 ${Number(
                   conceded.average
                 ).toFixed(2)}
@@ -2421,12 +2603,9 @@ function opportunityCard(
         style="
           margin-top:10px;
           padding-top:10px;
-          border-top:
-          1px solid
-          rgba(255,255,255,.07);
+          border-top:1px solid rgba(255,255,255,.07);
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:center;
           gap:10px;
         "
@@ -2443,8 +2622,7 @@ function opportunityCard(
 
         <strong
           style="
-            color:
-            ${lineColor(
+            color:${lineColor(
               item.cross_rate
             )};
           "
@@ -2494,6 +2672,13 @@ function discardedCard(
       : homeName;
 
 
+  const opponentText =
+    opponentLabel(
+      item,
+      opponent
+    );
+
+
   const produced =
     item.produced || {};
 
@@ -2519,8 +2704,7 @@ function discardedCard(
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           gap:12px;
           align-items:flex-start;
         "
@@ -2582,7 +2766,7 @@ function discardedCard(
 
         <br>
 
-        ${opponent} concede:
+        ${opponentText}:
         <strong>
           ${formatRate(
             conceded.rate
@@ -2606,8 +2790,7 @@ function discardedCard(
           margin-top:10px;
           padding:9px 10px;
           border-radius:9px;
-          background:
-          rgba(255,255,255,.035);
+          background:rgba(255,255,255,.035);
           font-size:12px;
           line-height:1.5;
         "
@@ -2680,7 +2863,7 @@ function renderBestOpportunities(data) {
         </h2>
 
         <span>
-          PRODUZ × CEDE
+          PRODUZ × HISTÓRICO ADVERSÁRIO
         </span>
 
       </div>
@@ -2699,6 +2882,11 @@ function renderBestOpportunities(data) {
         tendência dos últimos 5
         contra os últimos 10.
 
+        Quando mais de uma linha da
+        mesma métrica é aprovada,
+        ele prioriza a maior linha
+        que ainda permanece segura.
+
       </p>
 
 
@@ -2712,8 +2900,7 @@ function renderBestOpportunities(data) {
           margin-top:14px;
           padding:12px;
           border-radius:12px;
-          background:
-          rgba(255,255,255,.04);
+          background:rgba(255,255,255,.04);
           font-size:12px;
           line-height:1.5;
           opacity:.75;
@@ -2723,13 +2910,12 @@ function renderBestOpportunities(data) {
         Para entrar nas oportunidades,
         a linha precisa atingir
         produção ≥ ${MIN_PRODUCED_RATE}%,
-        adversário ≥ ${MIN_CONCEDED_RATE}%
+        histórico adversário ≥ ${MIN_CONCEDED_RATE}%
         e força combinada ≥ ${MIN_CROSS_RATE}%.
 
-        A sugestão principal é ainda
-        mais rígida: também precisa
-        passar esses filtros nos
-        Últimos 5 e não pode estar
+        A sugestão principal também
+        precisa passar esses filtros
+        nos Últimos 5 e não pode estar
         enfraquecendo.
 
         Os indicadores são históricos
@@ -2767,20 +2953,12 @@ function renderBestOpportunities(data) {
   let html = "";
 
 
-  /* ====================================================
-     SUGESTÃO PRINCIPAL
-  ==================================================== */
-
   html +=
     primarySuggestionCard(
       primary,
       data
     );
 
-
-  /* ====================================================
-     TOP 3
-  ==================================================== */
 
   html += `
 
@@ -2793,8 +2971,7 @@ function renderBestOpportunities(data) {
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:center;
           gap:10px;
           margin-bottom:12px;
@@ -2829,10 +3006,8 @@ function renderBestOpportunities(data) {
     html += `
 
       <div class="safe-box">
-
         Nenhuma linha atingiu
         os filtros mínimos.
-
       </div>
 
     `;
@@ -2859,10 +3034,6 @@ function renderBestOpportunities(data) {
   `;
 
 
-  /* ====================================================
-     BOAS OPORTUNIDADES
-  ==================================================== */
-
   html += `
 
     <div
@@ -2875,8 +3046,7 @@ function renderBestOpportunities(data) {
       <div
         style="
           display:flex;
-          justify-content:
-          space-between;
+          justify-content:space-between;
           align-items:center;
           gap:10px;
           margin-bottom:12px;
@@ -2946,10 +3116,6 @@ function renderBestOpportunities(data) {
   `;
 
 
-  /* ====================================================
-     DESCARTADAS
-  ==================================================== */
-
   html += `
 
     <details
@@ -2988,8 +3154,10 @@ function renderBestOpportunities(data) {
           "
         >
 
-          Não passaram em pelo menos
-          um dos filtros principais.
+          Aqui aparecem métricas em
+          que nenhuma das linhas
+          disponíveis conseguiu passar
+          pelos filtros principais.
 
           Uma tendência positiva não
           transforma automaticamente
@@ -3006,9 +3174,7 @@ function renderBestOpportunities(data) {
     html += `
 
       <div class="safe-box">
-
         Nenhuma linha descartada.
-
       </div>
 
     `;
@@ -3109,17 +3275,14 @@ function renderTeamLines(
               <div
                 style="
                   padding:10px 0;
-                  border-bottom:
-                  1px solid
-                  rgba(255,255,255,.07);
+                  border-bottom:1px solid rgba(255,255,255,.07);
                 "
               >
 
                 <div
                   style="
                     display:flex;
-                    justify-content:
-                    space-between;
+                    justify-content:space-between;
                     gap:12px;
                   "
                 >
@@ -3146,17 +3309,14 @@ function renderTeamLines(
             <div
               style="
                 padding:10px 0;
-                border-bottom:
-                1px solid
-                rgba(255,255,255,.07);
+                border-bottom:1px solid rgba(255,255,255,.07);
               "
             >
 
               <div
                 style="
                   display:flex;
-                  justify-content:
-                  space-between;
+                  justify-content:space-between;
                   gap:12px;
                   align-items:center;
                 "
@@ -3169,10 +3329,9 @@ function renderTeamLines(
 
                 <strong
                   style="
-                    color:
-                    ${lineColor(
+                    color:${lineColor(
                       line.rate
-                    )}
+                    )};
                   "
                 >
 
