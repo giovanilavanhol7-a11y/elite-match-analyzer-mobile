@@ -634,10 +634,7 @@ def get_league_seasons(league_id):
     return []
 
 
-def get_league_matches_cached(
-    league_id,
-    season=None
-):
+def get_league_matches_cached( league_id, season=None ):
     cache_key = (
         league_id,
         str(season or "")
@@ -706,11 +703,7 @@ def _finished_match_status(match):
     )
 
 
-def _match_fits_team_venue(
-    match,
-    team_id,
-    venue
-):
+def _match_fits_team_venue( match, team_id, venue ):
     home = match.get("home_team") or {}
     away = match.get("away_team") or {}
 
@@ -726,13 +719,7 @@ def _match_fits_team_venue(
     )
 
 
-def recent_matches(
-    league_id,
-    team_id,
-    current_id,
-    limit,
-    venue
-):
+def recent_matches( league_id, team_id, current_id, limit, venue ):
     if not league_id:
         return []
 
@@ -919,13 +906,7 @@ def opponent_id_from_match(match, team_id):
 # MÉDIA
 # =========================================================
 
-def team_average(
-    league_id,
-    team_id,
-    current_id,
-    limit,
-    venue
-):
+def team_average( league_id, team_id, current_id, limit, venue ):
     matches = recent_matches(
         league_id,
         team_id,
@@ -1238,10 +1219,7 @@ def build_conceded_lines(team_data):
 # CRUZAMENTO
 # =========================================================
 
-def build_cross_lines(
-    produced_team,
-    opponent_team
-):
+def build_cross_lines( produced_team, opponent_team ):
     result = []
 
     produced_values = (
@@ -1348,10 +1326,7 @@ def build_cross_lines(
 # TENDÊNCIA
 # =========================================================
 
-def build_trend_lines(
-    cross_5,
-    cross_10
-):
+def build_trend_lines( cross_5, cross_10 ):
     result = []
 
     map_5 = {
@@ -1673,7 +1648,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "FLASHSTYLE-HISTORY-V11"
+        "version": "HYBRID-TODAY-V12"
     })
 
 
@@ -1681,10 +1656,7 @@ def health():
 # PARTIDAS DE HOJE
 # =========================================================
 
-def match_is_today_brazil(
-    match,
-    today
-):
+def match_is_today_brazil( match, today ):
     time_utc = match.get("time_utc")
 
     if time_utc:
@@ -1719,10 +1691,7 @@ def extract_leagues(data):
     )
 
 
-def season_candidates(
-    league,
-    today
-):
+def season_candidates( league, today ):
     try:
         year = int(today[:4])
     except Exception:
@@ -1755,11 +1724,7 @@ def season_candidates(
     return result[:3]
 
 
-def league_matches_for_season(
-    league,
-    season,
-    today
-):
+def league_matches_for_season( league, season, today ):
     league_id = league.get("id")
 
     if not league_id:
@@ -1817,9 +1782,7 @@ def league_matches_for_season(
     return result
 
 
-def fixtures_from_all_leagues(
-    today
-):
+def fixtures_from_all_leagues( today ):
     try:
         data = api_get("v1/leagues")
     except Exception:
@@ -2043,15 +2006,12 @@ def debug_football_data():
 
 @app.get("/api/fixtures/today")
 def fixtures_today():
+    """ Lista de hoje: 1) 5DollarFootballAPI = fonte ampla do calendário do dia. 2) PitchAPI = fornece o ID usado pela análise. 3) Só exibimos como clicável o jogo que conseguiu parear com PitchAPI. Isso evita mostrar um jogo que depois quebraria ao abrir a análise. """
     try:
         now_local = datetime.now(
             ZoneInfo(TIMEZONE)
         )
-
-        today = now_local.strftime(
-            "%Y-%m-%d"
-        )
-
+        today = now_local.strftime("%Y-%m-%d")
         now_timestamp = time.time()
 
         if (
@@ -2071,13 +2031,80 @@ def fixtures_today():
                 "fixtures": FIXTURES_CACHE["matches"]
             })
 
-        matches = []
-        seen_ids = set()
+        # -------------------------------------------------
+        # 1. Calendário amplo da nova API
+        # -------------------------------------------------
+        external_payload = football_data_get_cached(
+            "fixtures",
+            params={
+                "status": "all",
+                "per_page": 100,
+                "lang": "pt"
+            },
+            ttl=120
+        )
 
-        # A PitchAPI trabalha com data de calendário UTC.
-        # Como o site exibe horário de Brasília, consultamos
-        # ontem, hoje e amanhã na API e depois mantemos apenas
-        # as partidas que realmente caem em "hoje" no Brasil.
+        if not isinstance(
+            external_payload,
+            dict
+        ):
+            external_fixtures = []
+        else:
+            external_fixtures = (
+                external_payload.get("data")
+                or []
+            )
+
+        external_today = []
+
+        for fixture in external_fixtures:
+            if not isinstance(
+                fixture,
+                dict
+            ):
+                continue
+
+            kickoff_utc = (
+                fixture.get("kickoff_utc")
+            )
+
+            if (
+                kickoff_utc
+                and local_match_day(
+                    kickoff_utc
+                ) != today
+            ):
+                continue
+
+            teams = (
+                fixture.get("teams")
+                or {}
+            )
+            home = (
+                teams.get("home")
+                or {}
+            )
+            away = (
+                teams.get("away")
+                or {}
+            )
+
+            if (
+                not home.get("name")
+                or not away.get("name")
+            ):
+                continue
+
+            external_today.append(
+                fixture
+            )
+
+        # -------------------------------------------------
+        # 2. Catálogo PitchAPI em torno do dia local
+        # -------------------------------------------------
+        pitch_matches = []
+        seen_pitch_ids = set()
+
         dates_to_check = [
             (
                 now_local
@@ -2090,7 +2117,7 @@ def fixtures_today():
             ).strftime("%Y-%m-%d")
         ]
 
-        errors = []
+        pitch_warnings = []
 
         for date_value in dates_to_check:
             try:
@@ -2098,7 +2125,7 @@ def fixtures_today():
                     f"v1/date/{date_value}?status=all"
                 )
             except Exception as error:
-                errors.append(
+                pitch_warnings.append(
                     f"{date_value}: {error}"
                 )
                 continue
@@ -2106,57 +2133,232 @@ def fixtures_today():
             if not isinstance(data, dict):
                 continue
 
-            for match in data.get("matches") or []:
+            for match in (
+                data.get("matches")
+                or []
+            ):
+                if not isinstance(
+                    match,
+                    dict
+                ):
+                    continue
+
+                match_id = match.get("id")
+
+                if (
+                    not match_id
+                    or match_id
+                    in seen_pitch_ids
+                ):
+                    continue
+
                 if not match_is_today_brazil(
                     match,
                     today
                 ):
                     continue
 
-                match_id = match.get("id")
-
-                if not match_id:
-                    continue
-
-                if match_id in seen_ids:
-                    continue
-
-                seen_ids.add(match_id)
-                matches.append(match)
-
-        matches.sort(
-            key=lambda match: (
-                match_time(
-                    match.get("time_utc")
+                seen_pitch_ids.add(
+                    match_id
                 )
+                pitch_matches.append(
+                    match
+                )
+
+        # -------------------------------------------------
+        # 3. Pareamento: nova API -> PitchAPI
+        # -------------------------------------------------
+        normalized = []
+        used_pitch_ids = set()
+        unmatched = []
+
+        for external in external_today:
+            teams = (
+                external.get("teams")
+                or {}
+            )
+            ext_home = (
+                teams.get("home")
+                or {}
+            )
+            ext_away = (
+                teams.get("away")
+                or {}
+            )
+
+            ext_ts = (
+                external.get("kickoff_ts")
+                or parse_utc_timestamp(
+                    external.get(
+                        "kickoff_utc"
+                    )
+                )
+            )
+
+            best_match = None
+            best_score = -1.0
+
+            for pitch in pitch_matches:
+                pitch_id = pitch.get("id")
+
+                if (
+                    not pitch_id
+                    or pitch_id
+                    in used_pitch_ids
+                ):
+                    continue
+
+                p_home = (
+                    pitch.get("home_team")
+                    or {}
+                )
+                p_away = (
+                    pitch.get("away_team")
+                    or {}
+                )
+
+                home_score = (
+                    team_name_similarity(
+                        ext_home.get("name"),
+                        p_home.get("name")
+                    )
+                )
+                away_score = (
+                    team_name_similarity(
+                        ext_away.get("name"),
+                        p_away.get("name")
+                    )
+                )
+
+                pitch_ts = (
+                    parse_utc_timestamp(
+                        pitch.get("time_utc")
+                    )
+                )
+
+                if (
+                    ext_ts is None
+                    or pitch_ts is None
+                ):
+                    time_score = 0.5
+                else:
+                    difference = abs(
+                        int(ext_ts)
+                        - int(pitch_ts)
+                    )
+
+                    if difference > 43200:
+                        time_score = 0.0
+                    else:
+                        time_score = max(
+                            0.0,
+                            1.0
+                            - (
+                                difference
+                                / 21600
+                            )
+                        )
+
+                score = (
+                    home_score * 0.45
+                    + away_score * 0.45
+                    + time_score * 0.10
+                )
+
+                if (
+                    home_score >= 0.70
+                    and away_score >= 0.70
+                    and score > best_score
+                ):
+                    best_match = pitch
+                    best_score = score
+
+            if best_match is None:
+                unmatched.append({
+                    "home": ext_home.get(
+                        "name",
+                        ""
+                    ),
+                    "away": ext_away.get(
+                        "name",
+                        ""
+                    )
+                })
+                continue
+
+            used_pitch_ids.add(
+                best_match.get("id")
+            )
+
+            item = normalize_match(
+                best_match
+            )
+
+            # Se a PitchAPI não trouxer o nome da liga,
+            # aproveita somente o nome visual da fonte ampla.
+            ext_league = (
+                external.get("league")
+                or {}
+            )
+
+            if (
+                item.get("league")
+                in (
+                    "",
+                    "Competição"
+                )
+                and ext_league.get("name")
+            ):
+                item["league"] = (
+                    ext_league.get("name")
+                )
+
+            normalized.append(item)
+
+        normalized.sort(
+            key=lambda item: (
+                item.get("time")
                 or "99:99",
-                str(match.get("id") or "")
+                str(item.get("id") or "")
             )
         )
 
-        normalized = [
-            normalize_match(match)
-            for match in matches
-        ]
-
         FIXTURES_CACHE["date"] = today
-        FIXTURES_CACHE["created_at"] = now_timestamp
-        FIXTURES_CACHE["matches"] = normalized
+        FIXTURES_CACHE["created_at"] = (
+            now_timestamp
+        )
+        FIXTURES_CACHE["matches"] = (
+            normalized
+        )
 
         return jsonify({
             "mode": "live",
             "message": "",
             "date": today,
             "timezone": TIMEZONE,
-            "source": "date-status-all",
+            "source": (
+                "5DOLLARFOOTBALLAPI"
+                "+PITCHAPI-MAPPED"
+            ),
             "fixtures": normalized,
-            "api_warnings": errors
+            "external_today": len(
+                external_today
+            ),
+            "mapped": len(normalized),
+            "unmatched_count": len(
+                unmatched
+            ),
+            "pitch_warnings": (
+                pitch_warnings
+            )
         })
 
     except Exception as error:
         return jsonify({
             "mode": "error",
             "message": str(error),
+            "date": "",
+            "timezone": TIMEZONE,
             "fixtures": []
         }), 502
 
@@ -2165,12 +2367,7 @@ def fixtures_today():
 # PREPARAR AMOSTRAS
 # =========================================================
 
-def prepare_samples(
-    league_id,
-    home_id,
-    away_id,
-    fixture_id
-):
+def prepare_samples( league_id, home_id, away_id, fixture_id ):
     home_10 = team_average(
         league_id,
         home_id,
@@ -2209,10 +2406,7 @@ def prepare_samples(
 # CONSTRUIR ANÁLISE
 # =========================================================
 
-def build_analysis_payload(
-    fixture_id,
-    sample
-):
+def build_analysis_payload( fixture_id, sample ):
     fixture = api_get(
         f"v1/matches/{fixture_id}"
     )
@@ -2310,7 +2504,7 @@ def build_analysis_payload(
     return {
         "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
         "history_source": samples.get("history_source"),
-        "version": "FLASHSTYLE-HISTORY-V11",
+        "version": "HYBRID-TODAY-V12",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -2475,7 +2669,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
-            "version": "FLASHSTYLE-HISTORY-V11",
+            "version": "HYBRID-TODAY-V12",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
