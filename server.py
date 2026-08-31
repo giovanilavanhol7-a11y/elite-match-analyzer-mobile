@@ -289,11 +289,15 @@ def get_h2h(fixture_id):
 
         home = (
             match.get("home")
+            or
+            match.get("home_team")
             or {}
         )
 
         away = (
             match.get("away")
+            or
+            match.get("away_team")
             or {}
         )
 
@@ -1923,7 +1927,6 @@ def health():
 
 # =========================================================
 # PARTIDAS DE HOJE
-# CORRIGIDO PARA O DIA REAL EM SÃO PAULO
 # =========================================================
 
 @app.get("/api/fixtures/today")
@@ -1945,18 +1948,6 @@ def fixtures_today():
         ).strftime(
             "%Y-%m-%d"
         )
-
-        # A PitchAPI pode organizar partidas
-        # pela data UTC.
-        #
-        # Como São Paulo está atrás do UTC,
-        # partidas no fim da noite de hoje
-        # podem aparecer na data de amanhã
-        # dentro da API.
-        #
-        # Por isso buscamos HOJE + AMANHÃ
-        # e depois fazemos o filtro verdadeiro
-        # pelo horário de São Paulo.
 
         dates_to_check = [
             today,
@@ -2013,27 +2004,12 @@ def fixtures_today():
                     )
                 )
 
-                # -----------------------------------------
-                # REGRA PRINCIPAL
-                #
-                # Se existe time_utc, a data usada é
-                # exclusivamente a data convertida para
-                # America/Sao_Paulo.
-                # -----------------------------------------
-
                 if local_day is not None:
 
                     if local_day != today:
                         continue
 
                 else:
-
-                    # -------------------------------------
-                    # FALLBACK
-                    #
-                    # Só usa "date" se a API realmente
-                    # não fornecer um time_utc válido.
-                    # -------------------------------------
 
                     raw_date = clean_text(
                         match.get("date")
@@ -2050,9 +2026,6 @@ def fixtures_today():
 
                     else:
 
-                        # Sem horário e sem data:
-                        # não é seguro afirmar que
-                        # a partida é de hoje.
                         continue
 
                 seen_ids.add(
@@ -2062,8 +2035,6 @@ def fixtures_today():
                 matches.append(
                     match
                 )
-
-        # Ordenar pelo horário real de São Paulo
 
         def fixture_sort_key(match):
 
@@ -3008,6 +2979,189 @@ def lines(fixture_id):
             "error":
                 str(error)
         }), 502
+
+
+# =========================================================
+# DIAGNÓSTICO DAS DATAS DA PITCHAPI
+# =========================================================
+
+@app.get("/api/debug/dates")
+def debug_dates():
+
+    try:
+
+        now_local = datetime.now(
+            ZoneInfo(TIMEZONE)
+        )
+
+        dates_to_check = [
+            (
+                now_local
+                - timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            ),
+
+            now_local.strftime(
+                "%Y-%m-%d"
+            ),
+
+            (
+                now_local
+                + timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+        ]
+
+        result = {}
+
+        for date_value in dates_to_check:
+
+            try:
+
+                data = api_get(
+                    f"v1/date/{date_value}"
+                )
+
+                api_matches = []
+
+                if isinstance(
+                    data,
+                    dict
+                ):
+
+                    api_matches = (
+                        data.get(
+                            "matches"
+                        )
+                        or []
+                    )
+
+                matches = []
+
+                for match in api_matches:
+
+                    home = (
+                        match.get(
+                            "home_team"
+                        )
+                        or {}
+                    )
+
+                    away = (
+                        match.get(
+                            "away_team"
+                        )
+                        or {}
+                    )
+
+                    time_utc = (
+                        match.get(
+                            "time_utc"
+                        )
+                    )
+
+                    matches.append({
+                        "id":
+                            match.get(
+                                "id"
+                            ),
+
+                        "league":
+                            (
+                                match.get(
+                                    "league"
+                                )
+                                or {}
+                            ).get(
+                                "name"
+                            ),
+
+                        "home":
+                            home.get(
+                                "name"
+                            ),
+
+                        "away":
+                            away.get(
+                                "name"
+                            ),
+
+                        "api_date":
+                            match.get(
+                                "date"
+                            ),
+
+                        "time_utc":
+                            time_utc,
+
+                        "hora_brasilia":
+                            match_time(
+                                time_utc
+                            ),
+
+                        "dia_brasilia":
+                            local_match_day(
+                                time_utc
+                            ),
+
+                        "status":
+                            match.get(
+                                "status"
+                            )
+                    })
+
+                result[
+                    date_value
+                ] = {
+                    "total":
+                        len(
+                            api_matches
+                        ),
+
+                    "matches":
+                        matches
+                }
+
+            except Exception as error:
+
+                result[
+                    date_value
+                ] = {
+                    "total":
+                        0,
+
+                    "matches":
+                        [],
+
+                    "error":
+                        str(error)
+                }
+
+        return jsonify({
+            "ok":
+                True,
+
+            "timezone":
+                TIMEZONE,
+
+            "agora_brasilia":
+                now_local.isoformat(),
+
+            "datas":
+                result
+        })
+
+    except Exception as error:
+
+        return jsonify({
+            "ok":
+                False,
+
+            "error":
+                str(error)
+        }), 500
 
 
 # =========================================================
