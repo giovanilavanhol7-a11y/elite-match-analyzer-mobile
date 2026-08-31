@@ -16,15 +16,18 @@ const MIN_PRODUCED_RATE = 75;
 const MIN_CONCEDED_RATE = 75;
 const MIN_CROSS_RATE = 80;
 
+/*
+  Para uma linha poder virar
+  SUGESTÃO PRINCIPAL,
+  exigimos pelo menos 4 jogos
+  válidos no recorte recente.
+*/
+
+const MIN_RECENT_GAMES = 4;
+
 
 /* ======================================================
    PESO DA TENDÊNCIA
-
-   SUBINDO: +0.3
-   MANTIDA: 0
-   ENFRAQUECENDO: -0.4
-
-   O ajuste é pequeno de propósito.
 ====================================================== */
 
 const TREND_BONUS_UP = 0.3;
@@ -158,6 +161,7 @@ function renderFixtures(items) {
     return;
   }
 
+
   fixturesEl.innerHTML =
     items.map(f => `
       <button
@@ -248,6 +252,7 @@ async function loadFixtures() {
       Carregando jogos...
     </div>
   `;
+
 
   try {
 
@@ -359,6 +364,7 @@ function setBigTeam(prefix, team) {
 async function openAnalysis(fixture) {
   currentFixture = fixture;
 
+
   fixturesEl.classList.add(
     "hidden"
   );
@@ -435,7 +441,7 @@ function lineColor(rate) {
 
 
 /* ======================================================
-   VALOR NUMÉRICO DA LINHA
+   VALOR DA LINHA
 ====================================================== */
 
 function lineThreshold(label) {
@@ -639,7 +645,7 @@ function findTrend(
 
 
 /* ======================================================
-   AJUSTE DO RANKING PELA TENDÊNCIA
+   AJUSTE DA TENDÊNCIA
 ====================================================== */
 
 function trendAdjustment(trendName) {
@@ -663,11 +669,7 @@ function trendAdjustment(trendName) {
 
 
 /* ======================================================
-   ÍNDICE FINAL PARA ORDENAR
-
-   ÍNDICE BASE + TENDÊNCIA
-
-   Máximo continua sendo 10.
+   ÍNDICE FINAL
 ====================================================== */
 
 function rankingIndex(
@@ -704,7 +706,7 @@ function rankingIndex(
 
 
 /* ======================================================
-   BLOCO VISUAL DA TENDÊNCIA
+   BLOCO DA TENDÊNCIA
 ====================================================== */
 
 function trendBlock(
@@ -804,17 +806,12 @@ function trendBlock(
 
 
   let adjustmentText =
-    "0.0";
+    adjustment.toFixed(1);
 
 
   if (adjustment > 0) {
     adjustmentText =
       `+${adjustment.toFixed(1)}`;
-  }
-
-  else {
-    adjustmentText =
-      adjustment.toFixed(1);
   }
 
 
@@ -1046,7 +1043,7 @@ function trendBlock(
 
 
 /* ======================================================
-   FILTROS
+   FILTROS PRINCIPAIS
 ====================================================== */
 
 function linePassesFilters(item) {
@@ -1175,7 +1172,7 @@ function rejectionReasons(item) {
 
 
 /* ======================================================
-   PREPARAR LINHAS E COLOCAR TENDÊNCIA
+   PREPARAR LINHAS
 ====================================================== */
 
 function prepareTeamLines(
@@ -1406,7 +1403,7 @@ function sortOpportunities(items) {
 
 
 /* ======================================================
-   CLASSIFICAR OPORTUNIDADES
+   CLASSIFICAR OPORTUNIDADES DA ABA
 ====================================================== */
 
 function classifyOpportunities(data) {
@@ -1472,6 +1469,9 @@ function classifyOpportunities(data) {
 
 
   return {
+    approved:
+      approved,
+
     top3:
       approved.slice(0, 3),
 
@@ -1481,6 +1481,646 @@ function classifyOpportunities(data) {
     discarded:
       discarded
   };
+}
+
+
+/* ======================================================
+   CANDIDATOS DA SUGESTÃO PRINCIPAL
+
+   A sugestão usa sempre o recorte
+   de até 10 jogos como base,
+   mesmo quando a pessoa toca
+   na aba "Últimos 5".
+====================================================== */
+
+function primaryCandidates(data) {
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+
+  const homeCross =
+    data.cross_samples
+      ?.last_10
+      ?.home ||
+    data.cross?.home ||
+    [];
+
+
+  const awayCross =
+    data.cross_samples
+      ?.last_10
+      ?.away ||
+    data.cross?.away ||
+    [];
+
+
+  const homeItems =
+    prepareTeamLines(
+      homeName,
+      homeCross,
+      data
+    );
+
+
+  const awayItems =
+    prepareTeamLines(
+      awayName,
+      awayCross,
+      data
+    );
+
+
+  const homeBest =
+    chooseBestPerMetric(
+      homeItems
+    );
+
+
+  const awayBest =
+    chooseBestPerMetric(
+      awayItems
+    );
+
+
+  return sortOpportunities(
+    [
+      ...homeBest,
+      ...awayBest
+    ].filter(
+      linePassesFilters
+    )
+  );
+}
+
+
+/* ======================================================
+   FILTRO RECENTE DA SUGESTÃO PRINCIPAL
+
+   Para virar sugestão principal:
+
+   - passou nos 10
+   - passou nos 5
+   - pelo menos 4 jogos recentes válidos
+   - não está enfraquecendo
+====================================================== */
+
+function passesRecentPrimaryFilter(
+  item,
+  data
+) {
+  const trend =
+    findTrend(
+      item,
+      data
+    );
+
+
+  if (!trend) {
+    return false;
+  }
+
+
+  if (
+    trend.trend ===
+    "enfraquecendo"
+  ) {
+    return false;
+  }
+
+
+  const recent5 =
+    trend.recent_5 || {};
+
+
+  const produced =
+    recent5.produced || {};
+
+
+  const conceded =
+    recent5.opponent_conceded || {};
+
+
+  const producedRate =
+    Number(
+      produced.rate
+    );
+
+
+  const concededRate =
+    Number(
+      conceded.rate
+    );
+
+
+  const crossRate =
+    Number(
+      recent5.cross_rate
+    );
+
+
+  const producedGames =
+    Number(
+      produced.games || 0
+    );
+
+
+  const concededGames =
+    Number(
+      conceded.games || 0
+    );
+
+
+  if (
+    Number.isNaN(producedRate) ||
+    Number.isNaN(concededRate) ||
+    Number.isNaN(crossRate)
+  ) {
+    return false;
+  }
+
+
+  if (
+    producedGames <
+      MIN_RECENT_GAMES ||
+    concededGames <
+      MIN_RECENT_GAMES
+  ) {
+    return false;
+  }
+
+
+  return (
+    producedRate >=
+      MIN_PRODUCED_RATE &&
+
+    concededRate >=
+      MIN_CONCEDED_RATE &&
+
+    crossRate >=
+      MIN_CROSS_RATE
+  );
+}
+
+
+/* ======================================================
+   ESCOLHER UMA ÚNICA SUGESTÃO
+====================================================== */
+
+function selectPrimarySuggestion(data) {
+  const candidates =
+    primaryCandidates(
+      data
+    );
+
+
+  const strongRecent =
+    candidates.filter(
+      item =>
+        passesRecentPrimaryFilter(
+          item,
+          data
+        )
+    );
+
+
+  if (!strongRecent.length) {
+    return null;
+  }
+
+
+  return strongRecent[0];
+}
+
+
+/* ======================================================
+   CARD DA SUGESTÃO PRINCIPAL
+====================================================== */
+
+function primarySuggestionCard(
+  item,
+  data
+) {
+  if (!item) {
+
+    return `
+
+      <div
+        style="
+          margin-bottom:22px;
+          padding:15px;
+          border-radius:14px;
+          border:
+          1px solid
+          rgba(255,255,255,.09);
+          background:
+          rgba(255,255,255,.035);
+        "
+      >
+
+        <div
+          style="
+            font-size:18px;
+            font-weight:800;
+            margin-bottom:8px;
+          "
+        >
+          🎯 Sugestão principal
+        </div>
+
+
+        <div
+          style="
+            font-size:13px;
+            line-height:1.6;
+            opacity:.8;
+          "
+        >
+
+          Nenhuma linha passou ao
+          mesmo tempo pelos filtros
+          dos Últimos 10 e dos
+          Últimos 5 com força
+          suficiente.
+
+          <br><br>
+
+          Nesse caso o sistema
+          prefere não destacar uma
+          sugestão principal.
+
+        </div>
+
+      </div>
+
+    `;
+  }
+
+
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+
+  const opponent =
+    item.team === homeName
+      ? awayName
+      : homeName;
+
+
+  const trend =
+    findTrend(
+      item,
+      data
+    ) || {};
+
+
+  const recent5 =
+    trend.recent_5 || {};
+
+
+  const recent10 =
+    trend.recent_10 || {};
+
+
+  const produced10 =
+    recent10.produced ||
+    item.produced ||
+    {};
+
+
+  const conceded10 =
+    recent10.opponent_conceded ||
+    item.opponent_conceded ||
+    {};
+
+
+  const produced5 =
+    recent5.produced || {};
+
+
+  const conceded5 =
+    recent5.opponent_conceded || {};
+
+
+  const info =
+    trendInfo(
+      trend.trend
+    );
+
+
+  return `
+
+    <div
+      style="
+        margin-bottom:24px;
+        padding:16px;
+        border-radius:16px;
+        border:
+        1px solid
+        rgba(255,255,255,.12);
+        background:
+        rgba(255,255,255,.055);
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:flex-start;
+          gap:12px;
+        "
+      >
+
+        <div>
+
+          <div
+            style="
+              font-size:18px;
+              font-weight:800;
+              margin-bottom:5px;
+            "
+          >
+            🎯 Sugestão principal
+          </div>
+
+
+          <div
+            style="
+              font-size:12px;
+              opacity:.7;
+            "
+          >
+            MELHOR CRUZAMENTO APROVADO
+          </div>
+
+        </div>
+
+
+        <div
+          style="
+            text-align:right;
+          "
+        >
+
+          <strong
+            style="
+              font-size:22px;
+              color:
+              ${lineColor(
+                item.cross_rate
+              )};
+            "
+          >
+
+            ${item.index}/10
+
+          </strong>
+
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.7;
+              margin-top:3px;
+            "
+          >
+
+            índice histórico
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:18px;
+          padding:14px;
+          border-radius:12px;
+          background:
+          rgba(255,255,255,.05);
+        "
+      >
+
+        <div
+          style="
+            font-size:13px;
+            opacity:.75;
+            margin-bottom:5px;
+          "
+        >
+
+          ${item.team}
+
+        </div>
+
+
+        <strong
+          style="
+            font-size:22px;
+          "
+        >
+
+          ${item.label}
+
+        </strong>
+
+
+        <div
+          style="
+            margin-top:8px;
+            font-size:13px;
+          "
+        >
+
+          ${info.icon}
+          <strong>
+            ${info.label}
+          </strong>
+
+        </div>
+
+      </div>
+
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:
+          1fr 1fr;
+          gap:8px;
+          margin-top:10px;
+        "
+      >
+
+        <div
+          style="
+            padding:11px;
+            border-radius:10px;
+            background:
+            rgba(255,255,255,.04);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:4px;
+            "
+          >
+            Força últimos 10
+          </div>
+
+
+          <strong
+            style="
+              font-size:17px;
+            "
+          >
+
+            ${formatRate(
+              recent10.cross_rate ??
+              item.cross_rate
+            )}
+
+          </strong>
+
+        </div>
+
+
+        <div
+          style="
+            padding:11px;
+            border-radius:10px;
+            background:
+            rgba(255,255,255,.04);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:4px;
+            "
+          >
+            Força últimos 5
+          </div>
+
+
+          <strong
+            style="
+              font-size:17px;
+            "
+          >
+
+            ${formatRate(
+              recent5.cross_rate
+            )}
+
+          </strong>
+
+        </div>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:10px;
+          padding:12px;
+          border-radius:10px;
+          background:
+          rgba(255,255,255,.035);
+          font-size:12px;
+          line-height:1.7;
+        "
+      >
+
+        ${item.team} produz:
+
+        <strong>
+          ${formatRate(
+            produced10.rate
+          )}
+        </strong>
+        nos 10
+
+        →
+
+        <strong>
+          ${formatRate(
+            produced5.rate
+          )}
+        </strong>
+        nos 5
+
+        <br>
+
+
+        ${opponent} concede:
+
+        <strong>
+          ${formatRate(
+            conceded10.rate
+          )}
+        </strong>
+        nos 10
+
+        →
+
+        <strong>
+          ${formatRate(
+            conceded5.rate
+          )}
+        </strong>
+        nos 5
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:12px;
+          padding-top:12px;
+          border-top:
+          1px solid
+          rgba(255,255,255,.08);
+          font-size:12px;
+          line-height:1.6;
+          opacity:.75;
+        "
+      >
+
+        Esta é a linha que melhor
+        passou pelos filtros históricos
+        e recentes do sistema.
+
+        É uma sugestão baseada em dados
+        passados, não uma garantia de
+        resultado.
+
+      </div>
+
+    </div>
+
+  `;
 }
 
 
@@ -2081,17 +2721,20 @@ function renderBestOpportunities(data) {
       >
 
         Para entrar nas oportunidades,
-        a linha ainda precisa atingir
+        a linha precisa atingir
         produção ≥ ${MIN_PRODUCED_RATE}%,
         adversário ≥ ${MIN_CONCEDED_RATE}%
         e força combinada ≥ ${MIN_CROSS_RATE}%.
 
-        A tendência altera apenas
-        levemente a posição no ranking.
+        A sugestão principal é ainda
+        mais rígida: também precisa
+        passar esses filtros nos
+        Últimos 5 e não pode estar
+        enfraquecendo.
 
-        O índice é histórico e não
-        representa garantia ou
-        probabilidade certa de acerto.
+        Os indicadores são históricos
+        e não representam garantia
+        de resultado.
 
       </div>
 
@@ -2115,7 +2758,24 @@ function renderBestOpportunities(data) {
     );
 
 
+  const primary =
+    selectPrimarySuggestion(
+      data
+    );
+
+
   let html = "";
+
+
+  /* ====================================================
+     SUGESTÃO PRINCIPAL
+  ==================================================== */
+
+  html +=
+    primarySuggestionCard(
+      primary,
+      data
+    );
 
 
   /* ====================================================
