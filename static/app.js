@@ -9,6 +9,15 @@ let currentSample = 10;
 
 
 /* ======================================================
+   CONFIGURAÇÃO DOS FILTROS
+====================================================== */
+
+const MIN_PRODUCED_RATE = 75;
+const MIN_CONCEDED_RATE = 75;
+const MIN_CROSS_RATE = 80;
+
+
+/* ======================================================
    AUXILIARES
 ====================================================== */
 
@@ -444,7 +453,7 @@ function lineThreshold(label) {
    20% = lado mais fraco
    10% = quantidade de jogos
 
-   NÃO É PROBABILIDADE.
+   NÃO É PROBABILIDADE DE ACERTO.
 ====================================================== */
 
 function crossIndex(item) {
@@ -524,7 +533,7 @@ function crossIndex(item) {
 
 
 /* ======================================================
-   CLASSIFICAÇÃO DO ÍNDICE
+   CLASSIFICAÇÃO
 ====================================================== */
 
 function indexLabel(score) {
@@ -553,93 +562,144 @@ function indexLabel(score) {
 
 
 /* ======================================================
-   ESCOLHER UMA LINHA POR MÉTRICA
-
-   REGRA NOVA:
-
-   - PRODUZ >= 75%
-   - CONCEDE >= 75%
-   - FORÇA COMBINADA >= 80%
+   VERIFICAR SE A LINHA PASSOU NOS FILTROS
 ====================================================== */
 
-function chooseBestCrossLines(
+function linePassesFilters(item) {
+  const producedRate =
+    Number(
+      item.produced?.rate
+    );
+
+
+  const concededRate =
+    Number(
+      item.opponent_conceded?.rate
+    );
+
+
+  const crossRate =
+    Number(
+      item.cross_rate
+    );
+
+
+  if (
+    Number.isNaN(producedRate) ||
+    Number.isNaN(concededRate) ||
+    Number.isNaN(crossRate)
+  ) {
+    return false;
+  }
+
+
+  return (
+    producedRate >=
+      MIN_PRODUCED_RATE &&
+
+    concededRate >=
+      MIN_CONCEDED_RATE &&
+
+    crossRate >=
+      MIN_CROSS_RATE
+  );
+}
+
+
+/* ======================================================
+   MOTIVO DA LINHA SER DESCARTADA
+====================================================== */
+
+function rejectionReasons(item) {
+  const reasons = [];
+
+
+  const producedRate =
+    Number(
+      item.produced?.rate
+    );
+
+
+  const concededRate =
+    Number(
+      item.opponent_conceded?.rate
+    );
+
+
+  const crossRate =
+    Number(
+      item.cross_rate
+    );
+
+
+  if (Number.isNaN(producedRate)) {
+
+    reasons.push(
+      "sem histórico suficiente de produção"
+    );
+
+  } else if (
+    producedRate <
+    MIN_PRODUCED_RATE
+  ) {
+
+    reasons.push(
+      `produção abaixo de ${MIN_PRODUCED_RATE}%`
+    );
+
+  }
+
+
+  if (Number.isNaN(concededRate)) {
+
+    reasons.push(
+      "sem histórico suficiente do adversário"
+    );
+
+  } else if (
+    concededRate <
+    MIN_CONCEDED_RATE
+  ) {
+
+    reasons.push(
+      `adversário concede menos de ${MIN_CONCEDED_RATE}%`
+    );
+
+  }
+
+
+  if (Number.isNaN(crossRate)) {
+
+    reasons.push(
+      "sem força combinada disponível"
+    );
+
+  } else if (
+    crossRate <
+    MIN_CROSS_RATE
+  ) {
+
+    reasons.push(
+      `força combinada abaixo de ${MIN_CROSS_RATE}%`
+    );
+
+  }
+
+
+  return reasons;
+}
+
+
+/* ======================================================
+   PREPARAR LINHAS DE UM TIME
+====================================================== */
+
+function prepareTeamLines(
   teamName,
   items
 ) {
-  const groups = {};
-
-
-  (items || []).forEach(item => {
-
-    const producedRate =
-      Number(
-        item.produced?.rate
-      );
-
-
-    const concededRate =
-      Number(
-        item.opponent_conceded?.rate
-      );
-
-
-    /*
-      Precisa existir informação
-      dos dois lados.
-    */
-
-    if (
-      Number.isNaN(producedRate) ||
-      Number.isNaN(concededRate)
-    ) {
-      return;
-    }
-
-
-    /*
-      NOVO FILTRO:
-
-      O time precisa produzir
-      a linha em pelo menos 75%.
-
-      O adversário também precisa
-      conceder a linha em pelo
-      menos 75%.
-    */
-
-    if (
-      producedRate < 75 ||
-      concededRate < 75
-    ) {
-      return;
-    }
-
-
-    /*
-      Força combinada mínima:
-      80%.
-    */
-
-    const crossRate =
-      Number(
-        item.cross_rate
-      );
-
-
-    if (
-      Number.isNaN(crossRate) ||
-      crossRate < 80
-    ) {
-      return;
-    }
-
-
-    const metric =
-      item.metric ||
-      item.label;
-
-
-    const candidate = {
+  return (items || [])
+    .map(item => ({
       ...item,
 
       team:
@@ -652,84 +712,119 @@ function chooseBestCrossLines(
 
       index:
         crossIndex(item)
-    };
+    }));
+}
 
 
-    const current =
-      groups[metric];
+/* ======================================================
+   ESCOLHER SÓ UMA LINHA POR MÉTRICA
+
+   IMPORTANTE:
+   Aqui ainda entram aprovadas e descartadas.
+
+   Assim podemos mostrar ao usuário
+   por que determinada estatística
+   não passou no filtro.
+====================================================== */
+
+function chooseBestPerMetric(items) {
+  const groups = {};
 
 
-    /*
-      Primeira linha encontrada
-      da métrica.
-    */
+  (items || []).forEach(
+    candidate => {
 
-    if (!current) {
-
-      groups[metric] =
-        candidate;
-
-      return;
-    }
+      const metric =
+        candidate.metric ||
+        candidate.label;
 
 
-    /*
-      1º critério:
-      maior índice combinado.
-    */
-
-    if (
-      candidate.index >
-      current.index
-    ) {
-
-      groups[metric] =
-        candidate;
-
-      return;
-    }
+      const current =
+        groups[metric];
 
 
-    /*
-      2º critério:
-      maior força combinada.
-    */
+      if (!current) {
 
-    if (
-      candidate.index ===
-        current.index &&
-      candidate.cross_rate >
-        current.cross_rate
-    ) {
+        groups[metric] =
+          candidate;
 
-      groups[metric] =
-        candidate;
-
-      return;
-    }
+        return;
+      }
 
 
-    /*
-      3º critério:
-      se tudo empatar,
-      escolhe a linha mais alta.
-    */
+      const candidateIndex =
+        candidate.index ?? -1;
 
-    if (
-      candidate.index ===
-        current.index &&
-      candidate.cross_rate ===
-        current.cross_rate &&
-      candidate.threshold >
+
+      const currentIndex =
+        current.index ?? -1;
+
+
+      /*
+        Primeiro:
+        maior índice histórico.
+      */
+
+      if (
+        candidateIndex >
+        currentIndex
+      ) {
+
+        groups[metric] =
+          candidate;
+
+        return;
+      }
+
+
+      /*
+        Segundo:
+        maior força combinada.
+      */
+
+      if (
+        candidateIndex ===
+          currentIndex &&
+        Number(
+          candidate.cross_rate || 0
+        ) >
+        Number(
+          current.cross_rate || 0
+        )
+      ) {
+
+        groups[metric] =
+          candidate;
+
+        return;
+      }
+
+
+      /*
+        Terceiro:
+        linha mais alta.
+      */
+
+      if (
+        candidateIndex ===
+          currentIndex &&
+        Number(
+          candidate.cross_rate || 0
+        ) ===
+        Number(
+          current.cross_rate || 0
+        ) &&
+        candidate.threshold >
         current.threshold
-    ) {
+      ) {
 
-      groups[metric] =
-        candidate;
+        groups[metric] =
+          candidate;
+
+      }
 
     }
-
-  });
+  );
 
 
   return Object.values(
@@ -739,10 +834,73 @@ function chooseBestCrossLines(
 
 
 /* ======================================================
-   MELHORES OPORTUNIDADES
+   ORDENAR POR FORÇA
 ====================================================== */
 
-function getBestOpportunities(data) {
+function sortOpportunities(items) {
+  return [...items].sort(
+    (a, b) => {
+
+      const aIndex =
+        a.index ?? -1;
+
+      const bIndex =
+        b.index ?? -1;
+
+
+      if (
+        bIndex !==
+        aIndex
+      ) {
+
+        return (
+          bIndex -
+          aIndex
+        );
+
+      }
+
+
+      const aCross =
+        Number(
+          a.cross_rate || 0
+        );
+
+
+      const bCross =
+        Number(
+          b.cross_rate || 0
+        );
+
+
+      if (
+        bCross !==
+        aCross
+      ) {
+
+        return (
+          bCross -
+          aCross
+        );
+
+      }
+
+
+      return (
+        b.threshold -
+        a.threshold
+      );
+
+    }
+  );
+}
+
+
+/* ======================================================
+   CLASSIFICAR TODAS AS OPORTUNIDADES
+====================================================== */
+
+function classifyOpportunities(data) {
   const homeName =
     data.home?.name ||
     currentFixture.home.name;
@@ -753,81 +911,559 @@ function getBestOpportunities(data) {
     currentFixture.away.name;
 
 
-  const homeCross =
-    chooseBestCrossLines(
+  const homeItems =
+    prepareTeamLines(
       homeName,
       data.cross?.home || []
     );
 
 
-  const awayCross =
-    chooseBestCrossLines(
+  const awayItems =
+    prepareTeamLines(
       awayName,
       data.cross?.away || []
     );
 
 
-  const opportunities = [
-    ...homeCross,
-    ...awayCross
+  const homeBest =
+    chooseBestPerMetric(
+      homeItems
+    );
+
+
+  const awayBest =
+    chooseBestPerMetric(
+      awayItems
+    );
+
+
+  const allBest = [
+    ...homeBest,
+    ...awayBest
   ];
 
 
-  opportunities.sort(
-    (a, b) => {
-
-      /*
-        Primeiro:
-        maior índice.
-      */
-
-      if (
-        b.index !==
-        a.index
-      ) {
-        return (
-          b.index -
-          a.index
-        );
-      }
+  const approved =
+    sortOpportunities(
+      allBest.filter(
+        linePassesFilters
+      )
+    );
 
 
-      /*
-        Segundo:
-        maior força combinada.
-      */
-
-      if (
-        b.cross_rate !==
-        a.cross_rate
-      ) {
-        return (
-          b.cross_rate -
-          a.cross_rate
-        );
-      }
+  const discarded =
+    sortOpportunities(
+      allBest.filter(
+        item =>
+          !linePassesFilters(item)
+      )
+    );
 
 
-      /*
-        Terceiro:
-        linha mais alta.
-      */
+  return {
+    top3:
+      approved.slice(0, 3),
 
-      return (
-        b.threshold -
-        a.threshold
-      );
+    good:
+      approved.slice(3),
 
-    }
-  );
-
-
-  return opportunities;
+    discarded:
+      discarded
+  };
 }
 
 
 /* ======================================================
-   MOSTRAR MELHORES OPORTUNIDADES
+   CARD DA OPORTUNIDADE
+====================================================== */
+
+function opportunityCard(
+  item,
+  data,
+  rank = null
+) {
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+
+  const opponent =
+    item.team === homeName
+      ? awayName
+      : homeName;
+
+
+  const produced =
+    item.produced || {};
+
+
+  const conceded =
+    item.opponent_conceded || {};
+
+
+  return `
+
+    <div
+      class="safe-box"
+      style="
+        margin-bottom:14px;
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:flex-start;
+          gap:12px;
+        "
+      >
+
+        <div>
+
+          <div
+            style="
+              font-size:12px;
+              opacity:.7;
+              margin-bottom:4px;
+            "
+          >
+
+            ${
+              rank !== null
+                ? `${rank}. `
+                : ""
+            }
+
+            ${item.team}
+
+          </div>
+
+
+          <strong
+            style="
+              font-size:16px;
+            "
+          >
+
+            ${item.label}
+
+          </strong>
+
+        </div>
+
+
+        <div
+          style="
+            text-align:right;
+          "
+        >
+
+          <strong
+            style="
+              font-size:20px;
+              color:
+              ${lineColor(
+                item.cross_rate
+              )};
+            "
+          >
+
+            ${
+              item.index !== null
+                ? `${item.index}/10`
+                : "—"
+            }
+
+          </strong>
+
+
+          <small
+            style="
+              display:block;
+              opacity:.75;
+              margin-top:3px;
+            "
+          >
+
+            ${indexLabel(
+              item.index
+            )}
+
+          </small>
+
+        </div>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:14px;
+          padding:11px;
+          border-radius:10px;
+          background:
+          rgba(255,255,255,.04);
+        "
+      >
+
+        <div
+          style="
+            font-size:12px;
+            opacity:.7;
+            margin-bottom:5px;
+          "
+        >
+
+          ${item.team} produz
+
+        </div>
+
+
+        <strong>
+
+          ${formatRate(
+            produced.rate
+          )}
+
+        </strong>
+
+
+        <span
+          style="
+            opacity:.75;
+            margin-left:5px;
+          "
+        >
+
+          • ${produced.hits || 0}
+          de ${produced.games || 0}
+          jogos
+
+        </span>
+
+
+        ${
+          produced.average !==
+          null &&
+          produced.average !==
+          undefined
+
+            ? `
+
+              <div
+                style="
+                  margin-top:5px;
+                  font-size:12px;
+                  opacity:.75;
+                "
+              >
+
+                Média:
+                ${Number(
+                  produced.average
+                ).toFixed(2)}
+
+              </div>
+
+            `
+
+            : ""
+        }
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:8px;
+          padding:11px;
+          border-radius:10px;
+          background:
+          rgba(255,255,255,.04);
+        "
+      >
+
+        <div
+          style="
+            font-size:12px;
+            opacity:.7;
+            margin-bottom:5px;
+          "
+        >
+
+          ${opponent} concede
+
+        </div>
+
+
+        <strong>
+
+          ${formatRate(
+            conceded.rate
+          )}
+
+        </strong>
+
+
+        <span
+          style="
+            opacity:.75;
+            margin-left:5px;
+          "
+        >
+
+          • ${conceded.hits || 0}
+          de ${conceded.games || 0}
+          jogos
+
+        </span>
+
+
+        ${
+          conceded.average !==
+          null &&
+          conceded.average !==
+          undefined
+
+            ? `
+
+              <div
+                style="
+                  margin-top:5px;
+                  font-size:12px;
+                  opacity:.75;
+                "
+              >
+
+                Média cedida:
+                ${Number(
+                  conceded.average
+                ).toFixed(2)}
+
+              </div>
+
+            `
+
+            : ""
+        }
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:10px;
+          padding-top:10px;
+          border-top:
+          1px solid
+          rgba(255,255,255,.07);
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:center;
+          gap:10px;
+        "
+      >
+
+        <small
+          style="
+            opacity:.75;
+          "
+        >
+
+          Força combinada
+
+        </small>
+
+
+        <strong
+          style="
+            color:
+            ${lineColor(
+              item.cross_rate
+            )};
+          "
+        >
+
+          ${formatRate(
+            item.cross_rate
+          )}
+
+        </strong>
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+
+/* ======================================================
+   CARD DESCARTADO
+====================================================== */
+
+function discardedCard(
+  item,
+  data
+) {
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+
+  const opponent =
+    item.team === homeName
+      ? awayName
+      : homeName;
+
+
+  const produced =
+    item.produced || {};
+
+
+  const conceded =
+    item.opponent_conceded || {};
+
+
+  const reasons =
+    rejectionReasons(item);
+
+
+  return `
+
+    <div
+      class="safe-box"
+      style="
+        margin-bottom:10px;
+        opacity:.82;
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          gap:12px;
+          align-items:flex-start;
+        "
+      >
+
+        <div>
+
+          <div
+            style="
+              font-size:12px;
+              opacity:.7;
+              margin-bottom:4px;
+            "
+          >
+
+            ${item.team}
+
+          </div>
+
+
+          <strong>
+            ${item.label}
+          </strong>
+
+        </div>
+
+
+        <strong
+          style="
+            font-size:14px;
+            opacity:.75;
+          "
+        >
+
+          ${
+            item.index !== null
+              ? `${item.index}/10`
+              : "—"
+          }
+
+        </strong>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:10px;
+          font-size:12px;
+          line-height:1.6;
+          opacity:.8;
+        "
+      >
+
+        ${item.team}:
+        <strong>
+          ${formatRate(
+            produced.rate
+          )}
+        </strong>
+
+        <br>
+
+        ${opponent} concede:
+        <strong>
+          ${formatRate(
+            conceded.rate
+          )}
+        </strong>
+
+        <br>
+
+        Força:
+        <strong>
+          ${formatRate(
+            item.cross_rate
+          )}
+        </strong>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:10px;
+          padding:9px 10px;
+          border-radius:9px;
+          background:
+          rgba(255,255,255,.035);
+          font-size:12px;
+          line-height:1.5;
+        "
+      >
+
+        🚫
+        ${reasons.join(" • ")}
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+
+/* ======================================================
+   RENDERIZAR TOP 3 / BOAS / DESCARTADAS
 ====================================================== */
 
 function renderBestOpportunities(data) {
@@ -872,11 +1508,11 @@ function renderBestOpportunities(data) {
       <div class="section-head">
 
         <h2>
-          Melhores oportunidades
+          Análise cruzada
         </h2>
 
         <span>
-          CRUZAMENTO
+          PRODUZ × CEDE
         </span>
 
       </div>
@@ -889,10 +1525,11 @@ function renderBestOpportunities(data) {
           margin-bottom:16px;
         "
       >
-        Só entram linhas em que
-        a equipe produz pelo menos
-        75% e o adversário concede
-        pelo menos 75%.
+
+        O sistema cruza o desempenho
+        da equipe com o que o adversário
+        costuma conceder.
+
       </p>
 
 
@@ -913,10 +1550,14 @@ function renderBestOpportunities(data) {
           opacity:.75;
         "
       >
+
         O Índice Histórico Combinado
-        usa somente o desempenho passado
-        das equipes. Ele não representa
-        probabilidade garantida de acerto.
+        é uma classificação baseada
+        no histórico recente.
+
+        Ele não representa probabilidade
+        garantida de acerto.
+
       </div>
 
     `;
@@ -933,351 +1574,277 @@ function renderBestOpportunities(data) {
   }
 
 
-  const opportunities =
-    getBestOpportunities(
+  const result =
+    classifyOpportunities(
       data
     );
 
 
-  if (!opportunities.length) {
+  let html = "";
 
-    container.innerHTML = `
+
+  /* ====================================================
+     TOP 3
+  ==================================================== */
+
+  html += `
+
+    <div
+      style="
+        margin-bottom:20px;
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:center;
+          gap:10px;
+          margin-bottom:12px;
+        "
+      >
+
+        <strong
+          style="
+            font-size:17px;
+          "
+        >
+          🥇 Top 3
+        </strong>
+
+
+        <span
+          style="
+            font-size:11px;
+            opacity:.7;
+          "
+        >
+          MAIS FORTES
+        </span>
+
+      </div>
+
+  `;
+
+
+  if (!result.top3.length) {
+
+    html += `
 
       <div class="safe-box">
 
-        Nenhuma linha passou
-        pelos filtros mínimos
-        deste recorte.
+        Nenhuma linha atingiu
+        os filtros mínimos.
 
       </div>
 
     `;
 
-    return;
+  } else {
+
+    html +=
+      result.top3
+        .map(
+          (item, index) =>
+            opportunityCard(
+              item,
+              data,
+              index + 1
+            )
+        )
+        .join("");
+
   }
 
 
-  const homeName =
-    data.home?.name ||
-    currentFixture.home.name;
+  html += `
+    </div>
+  `;
 
 
-  const awayName =
-    data.away?.name ||
-    currentFixture.away.name;
+  /* ====================================================
+     BOAS OPORTUNIDADES
+  ==================================================== */
+
+  html += `
+
+    <div
+      style="
+        margin-top:22px;
+        margin-bottom:20px;
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:center;
+          gap:10px;
+          margin-bottom:12px;
+        "
+      >
+
+        <strong
+          style="
+            font-size:17px;
+          "
+        >
+          ✅ Boas oportunidades
+        </strong>
+
+
+        <span
+          style="
+            font-size:11px;
+            opacity:.7;
+          "
+        >
+
+          APROVADAS
+
+        </span>
+
+      </div>
+
+  `;
+
+
+  if (!result.good.length) {
+
+    html += `
+
+      <div
+        class="safe-box"
+        style="
+          font-size:13px;
+          opacity:.8;
+        "
+      >
+
+        Nenhuma outra linha passou
+        pelos filtros.
+
+      </div>
+
+    `;
+
+  } else {
+
+    html +=
+      result.good
+        .map(
+          item =>
+            opportunityCard(
+              item,
+              data
+            )
+        )
+        .join("");
+
+  }
+
+
+  html += `
+    </div>
+  `;
+
+
+  /* ====================================================
+     DESCARTADAS
+  ==================================================== */
+
+  html += `
+
+    <details
+      style="
+        margin-top:22px;
+      "
+    >
+
+      <summary
+        style="
+          cursor:pointer;
+          font-weight:700;
+          font-size:16px;
+          padding:10px 0;
+        "
+      >
+
+        🚫 Descartadas
+        (${result.discarded.length})
+
+      </summary>
+
+
+      <div
+        style="
+          margin-top:12px;
+        "
+      >
+
+        <p
+          style="
+            font-size:12px;
+            opacity:.7;
+            line-height:1.5;
+            margin-top:0;
+          "
+        >
+
+          Não passaram em pelo menos
+          um dos filtros:
+          produção ≥ ${MIN_PRODUCED_RATE}%,
+          adversário concede ≥ ${MIN_CONCEDED_RATE}%
+          e força combinada ≥ ${MIN_CROSS_RATE}%.
+
+        </p>
+
+  `;
+
+
+  if (!result.discarded.length) {
+
+    html += `
+
+      <div class="safe-box">
+
+        Nenhuma linha descartada.
+
+      </div>
+
+    `;
+
+  } else {
+
+    html +=
+      result.discarded
+        .map(
+          item =>
+            discardedCard(
+              item,
+              data
+            )
+        )
+        .join("");
+
+  }
+
+
+  html += `
+
+      </div>
+
+    </details>
+
+  `;
 
 
   container.innerHTML =
-    opportunities
-      .map(
-        (item, index) => {
-
-          const opponent =
-            item.team === homeName
-              ? awayName
-              : homeName;
-
-
-          const produced =
-            item.produced || {};
-
-
-          const conceded =
-            item.opponent_conceded || {};
-
-
-          return `
-
-            <div
-              class="safe-box"
-              style="
-                margin-bottom:14px;
-              "
-            >
-
-              <div
-                style="
-                  display:flex;
-                  justify-content:
-                  space-between;
-                  gap:12px;
-                  align-items:flex-start;
-                "
-              >
-
-                <div>
-
-                  <div
-                    style="
-                      font-size:12px;
-                      opacity:.7;
-                      margin-bottom:4px;
-                    "
-                  >
-
-                    ${index + 1}.
-                    ${item.team}
-
-                  </div>
-
-
-                  <strong
-                    style="
-                      font-size:16px;
-                    "
-                  >
-
-                    ${item.label}
-
-                  </strong>
-
-                </div>
-
-
-                <div
-                  style="
-                    text-align:right;
-                  "
-                >
-
-                  <strong
-                    style="
-                      font-size:20px;
-                      color:
-                      ${lineColor(
-                        item.cross_rate
-                      )};
-                    "
-                  >
-
-                    ${item.index}/10
-
-                  </strong>
-
-
-                  <small
-                    style="
-                      display:block;
-                      opacity:.75;
-                      margin-top:3px;
-                    "
-                  >
-
-                    ${indexLabel(
-                      item.index
-                    )}
-
-                  </small>
-
-                </div>
-
-              </div>
-
-
-              <div
-                style="
-                  margin-top:14px;
-                  padding:11px;
-                  border-radius:10px;
-                  background:
-                  rgba(255,255,255,.04);
-                "
-              >
-
-                <div
-                  style="
-                    font-size:12px;
-                    opacity:.7;
-                    margin-bottom:5px;
-                  "
-                >
-
-                  ${item.team} produz
-
-                </div>
-
-
-                <strong>
-
-                  ${formatRate(
-                    produced.rate
-                  )}
-
-                </strong>
-
-
-                <span
-                  style="
-                    opacity:.75;
-                    margin-left:5px;
-                  "
-                >
-
-                  • ${produced.hits}
-                  de ${produced.games}
-                  jogos
-
-                </span>
-
-
-                ${
-                  produced.average !==
-                  null &&
-                  produced.average !==
-                  undefined
-
-                    ? `
-
-                      <div
-                        style="
-                          margin-top:5px;
-                          font-size:12px;
-                          opacity:.75;
-                        "
-                      >
-
-                        Média:
-                        ${Number(
-                          produced.average
-                        ).toFixed(2)}
-
-                      </div>
-
-                    `
-
-                    : ""
-                }
-
-              </div>
-
-
-              <div
-                style="
-                  margin-top:8px;
-                  padding:11px;
-                  border-radius:10px;
-                  background:
-                  rgba(255,255,255,.04);
-                "
-              >
-
-                <div
-                  style="
-                    font-size:12px;
-                    opacity:.7;
-                    margin-bottom:5px;
-                  "
-                >
-
-                  ${opponent} concede
-
-                </div>
-
-
-                <strong>
-
-                  ${formatRate(
-                    conceded.rate
-                  )}
-
-                </strong>
-
-
-                <span
-                  style="
-                    opacity:.75;
-                    margin-left:5px;
-                  "
-                >
-
-                  • ${conceded.hits}
-                  de ${conceded.games}
-                  jogos
-
-                </span>
-
-
-                ${
-                  conceded.average !==
-                  null &&
-                  conceded.average !==
-                  undefined
-
-                    ? `
-
-                      <div
-                        style="
-                          margin-top:5px;
-                          font-size:12px;
-                          opacity:.75;
-                        "
-                      >
-
-                        Média cedida:
-                        ${Number(
-                          conceded.average
-                        ).toFixed(2)}
-
-                      </div>
-
-                    `
-
-                    : ""
-                }
-
-              </div>
-
-
-              <div
-                style="
-                  margin-top:10px;
-                  padding-top:10px;
-                  border-top:
-                  1px solid
-                  rgba(255,255,255,.07);
-                  display:flex;
-                  justify-content:
-                  space-between;
-                  align-items:center;
-                  gap:10px;
-                "
-              >
-
-                <small
-                  style="
-                    opacity:.75;
-                  "
-                >
-
-                  Força combinada
-
-                </small>
-
-
-                <strong
-                  style="
-                    color:
-                    ${lineColor(
-                      item.cross_rate
-                    )};
-                  "
-                >
-
-                  ${formatRate(
-                    item.cross_rate
-                  )}
-
-                </strong>
-
-              </div>
-
-            </div>
-
-          `;
-
-        }
-      )
-      .join("");
+    html;
 }
 
 
