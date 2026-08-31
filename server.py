@@ -21,11 +21,7 @@ def api_get(path):
             "PITCHAPI_KEY não configurada."
         )
 
-    url = (
-        API_BASE
-        + "/"
-        + path.lstrip("/")
-    )
+    url = API_BASE + "/" + path.lstrip("/")
 
     response = requests.get(
         url,
@@ -73,9 +69,7 @@ def number(value):
     ):
         return float(value)
 
-    text = str(
-        value
-    ).strip()
+    text = str(value).strip()
 
     if not text:
         return None
@@ -319,13 +313,9 @@ def find_exact_stat(
         ):
 
             if home_side:
-                return item.get(
-                    "home"
-                )
+                return item.get("home")
 
-            return item.get(
-                "away"
-            )
+            return item.get("away")
 
     return None
 
@@ -571,10 +561,6 @@ def recent_matches(
             or {}
         )
 
-        # ==========================================
-        # CASA / FORA
-        # ==========================================
-
         if venue == "home":
 
             if (
@@ -782,12 +768,6 @@ def opponent_id_from_match(
 
 # =========================================================
 # MÉDIA DO TIME
-#
-# PRODUCED:
-# o que o próprio time fez.
-#
-# CONCEDED:
-# o que os adversários fizeram contra ele.
 # =========================================================
 
 def team_average(
@@ -827,18 +807,10 @@ def team_average(
 
     for match in matches:
 
-        # ==========================================
-        # O QUE O TIME PRODUZIU
-        # ==========================================
-
         own_row = team_match_values(
             match,
             team_id
         )
-
-        # ==========================================
-        # QUEM ERA O ADVERSÁRIO
-        # ==========================================
 
         opponent_id = (
             opponent_id_from_match(
@@ -846,13 +818,6 @@ def team_average(
                 team_id
             )
         )
-
-        # ==========================================
-        # O QUE O ADVERSÁRIO PRODUZIU
-        # CONTRA O TIME
-        # =
-        # O QUE O TIME CEDEU
-        # ==========================================
 
         if opponent_id:
 
@@ -915,13 +880,11 @@ def team_average(
         })
 
     return {
-        "matches_used": len(matches),
+        "matches_used":
+            len(matches),
 
-        "venue": venue,
-
-        # ==========================================
-        # COMPATIBILIDADE COM O APP ATUAL
-        # ==========================================
+        "venue":
+            venue,
 
         "averages": {
             key: average(value)
@@ -939,11 +902,8 @@ def team_average(
             in produced.items()
         },
 
-        "values": produced,
-
-        # ==========================================
-        # NOVOS DADOS: CONCEDIDOS
-        # ==========================================
+        "values":
+            produced,
 
         "conceded_averages": {
             key: average(value)
@@ -961,9 +921,100 @@ def team_average(
             in conceded.items()
         },
 
-        "conceded_values": conceded,
+        "conceded_values":
+            conceded,
 
-        "history": history
+        "history":
+            history
+    }
+
+
+# =========================================================
+# CRIAR RECORTE DOS MESMOS DADOS
+#
+# IMPORTANTE:
+# Os dados dos 10 jogos já foram carregados.
+# Para os últimos 5 nós apenas usamos
+# os 5 primeiros da lista.
+#
+# NÃO fazemos uma nova busca na API.
+# =========================================================
+
+def slice_team_data(
+    team_data,
+    limit
+):
+    produced = {
+        key: value[:limit]
+        for key, value
+        in team_data[
+            "values"
+        ].items()
+    }
+
+    conceded = {
+        key: value[:limit]
+        for key, value
+        in team_data[
+            "conceded_values"
+        ].items()
+    }
+
+    history = (
+        team_data[
+            "history"
+        ][:limit]
+    )
+
+    return {
+        "matches_used":
+            len(history),
+
+        "venue":
+            team_data.get(
+                "venue"
+            ),
+
+        "averages": {
+            key: average(value)
+            for key, value
+            in produced.items()
+        },
+
+        "coverage": {
+            key: len([
+                x
+                for x in value
+                if x is not None
+            ])
+            for key, value
+            in produced.items()
+        },
+
+        "values":
+            produced,
+
+        "conceded_averages": {
+            key: average(value)
+            for key, value
+            in conceded.items()
+        },
+
+        "conceded_coverage": {
+            key: len([
+                x
+                for x in value
+                if x is not None
+            ])
+            for key, value
+            in conceded.items()
+        },
+
+        "conceded_values":
+            conceded,
+
+        "history":
+            history
     }
 
 
@@ -1004,10 +1055,17 @@ def line_result(
     )
 
     return {
-        "line": threshold,
-        "hits": hits,
-        "games": len(valid),
-        "rate": rate
+        "line":
+            threshold,
+
+        "hits":
+            hits,
+
+        "games":
+            len(valid),
+
+        "rate":
+            rate
     }
 
 
@@ -1085,7 +1143,7 @@ LINE_DEFINITIONS = [
 
 
 # =========================================================
-# CRIAR LINHAS A PARTIR DOS VALORES
+# CRIAR LINHAS
 # =========================================================
 
 def build_lines_from_values(
@@ -1100,8 +1158,11 @@ def build_lines_from_values(
     ) in LINE_DEFINITIONS:
 
         result.append({
-            "metric": metric,
-            "label": label,
+            "metric":
+                metric,
+
+            "label":
+                label,
 
             **line_result(
                 values.get(
@@ -1115,9 +1176,13 @@ def build_lines_from_values(
     return result
 
 
-def build_lines(team_data):
+def build_lines(
+    team_data
+):
     return build_lines_from_values(
-        team_data["values"]
+        team_data[
+            "values"
+        ]
     )
 
 
@@ -1142,7 +1207,9 @@ def build_cross_lines(
     result = []
 
     produced_values = (
-        produced_team["values"]
+        produced_team[
+            "values"
+        ]
     )
 
     opponent_conceded = (
@@ -1187,8 +1254,10 @@ def build_cross_lines(
             )
         )
 
-        own_rate = own_result.get(
-            "rate"
+        own_rate = (
+            own_result.get(
+                "rate"
+            )
         )
 
         conceded_rate = (
@@ -1196,14 +1265,6 @@ def build_cross_lines(
                 "rate"
             )
         )
-
-        # ==========================================
-        # MÉDIA SIMPLES DAS DUAS TENDÊNCIAS
-        #
-        # NÃO É PROBABILIDADE.
-        # É SÓ UM ÍNDICE HISTÓRICO
-        # PARA ORDENAR O CRUZAMENTO.
-        # ==========================================
 
         rates = [
             value
@@ -1231,6 +1292,7 @@ def build_cross_lines(
                 produced_avg.get(
                     metric
                 ),
+
                 conceded_avg.get(
                     metric
                 )
@@ -1250,13 +1312,15 @@ def build_cross_lines(
             cross_average = None
 
         result.append({
-            "metric": metric,
+            "metric":
+                metric,
 
-            "label": label,
+            "label":
+                label,
 
-            "line": threshold,
+            "line":
+                threshold,
 
-            # TIME PRODUZ
             "produced": {
                 "average":
                     produced_avg.get(
@@ -1277,7 +1341,6 @@ def build_cross_lines(
                     own_rate
             },
 
-            # ADVERSÁRIO CEDE
             "opponent_conceded": {
                 "average":
                     conceded_avg.get(
@@ -1298,12 +1361,141 @@ def build_cross_lines(
                     conceded_rate
             },
 
-            # ÍNDICE DO CRUZAMENTO
             "cross_average":
                 cross_average,
 
             "cross_rate":
                 cross_rate
+        })
+
+    return result
+
+
+# =========================================================
+# JUNTAR ÚLTIMOS 5 + ÚLTIMOS 10
+#
+# Cada linha fica com:
+#
+# recent_5
+# recent_10
+#
+# para o frontend comparar tendência.
+# =========================================================
+
+def build_trend_lines(
+    cross_5,
+    cross_10
+):
+    result = []
+
+    map_5 = {
+        (
+            item.get("metric"),
+            item.get("line")
+        ): item
+        for item in cross_5
+    }
+
+    map_10 = {
+        (
+            item.get("metric"),
+            item.get("line")
+        ): item
+        for item in cross_10
+    }
+
+    all_keys = []
+
+    for key in map_10:
+        if key not in all_keys:
+            all_keys.append(key)
+
+    for key in map_5:
+        if key not in all_keys:
+            all_keys.append(key)
+
+    for key in all_keys:
+
+        item_10 = (
+            map_10.get(key)
+            or {}
+        )
+
+        item_5 = (
+            map_5.get(key)
+            or {}
+        )
+
+        base = (
+            item_10
+            or item_5
+        )
+
+        rate_5 = item_5.get(
+            "cross_rate"
+        )
+
+        rate_10 = item_10.get(
+            "cross_rate"
+        )
+
+        # ==========================================
+        # TENDÊNCIA
+        #
+        # diferença de até 5 pontos:
+        # MANTIDA
+        #
+        # últimos 5 > últimos 10 + 5:
+        # SUBINDO
+        #
+        # últimos 5 < últimos 10 - 5:
+        # ENFRAQUECENDO
+        # ==========================================
+
+        trend = "sem_dados"
+        difference = None
+
+        if (
+            rate_5 is not None
+            and
+            rate_10 is not None
+        ):
+
+            difference = round(
+                rate_5 - rate_10,
+                1
+            )
+
+            if difference > 5:
+                trend = "subindo"
+
+            elif difference < -5:
+                trend = "enfraquecendo"
+
+            else:
+                trend = "mantida"
+
+        result.append({
+            "metric":
+                base.get("metric"),
+
+            "label":
+                base.get("label"),
+
+            "line":
+                base.get("line"),
+
+            "recent_5":
+                item_5,
+
+            "recent_10":
+                item_10,
+
+            "difference":
+                difference,
+
+            "trend":
+                trend
         })
 
     return result
@@ -1328,7 +1520,8 @@ def index():
 @app.get("/api/health")
 def health():
     return jsonify({
-        "ok": True,
+        "ok":
+            True,
 
         "provider":
             "PITCHAPI",
@@ -1343,7 +1536,7 @@ def health():
             TIMEZONE,
 
         "version":
-            "CROSS-V1"
+            "TREND-V1"
     })
 
 
@@ -1378,9 +1571,11 @@ def fixtures_today():
             )
 
         return jsonify({
-            "mode": "live",
+            "mode":
+                "live",
 
-            "message": "",
+            "message":
+                "",
 
             "fixtures": [
                 normalize_match(
@@ -1394,13 +1589,84 @@ def fixtures_today():
     except Exception as error:
 
         return jsonify({
-            "mode": "error",
+            "mode":
+                "error",
 
             "message":
                 str(error),
 
-            "fixtures": []
+            "fixtures":
+                []
         }), 502
+
+
+# =========================================================
+# PREPARAR DADOS 5 E 10
+#
+# UMA ÚNICA BUSCA DOS 10 JOGOS.
+# DEPOIS RECORTAMOS OS 5.
+# =========================================================
+
+def prepare_samples(
+    league_id,
+    home_id,
+    away_id,
+    fixture_id
+):
+    # ==========================================
+    # BUSCA MÁXIMA:
+    # 10 JOGOS DO MANDANTE EM CASA
+    # ==========================================
+
+    home_10 = team_average(
+        league_id,
+        home_id,
+        fixture_id,
+        10,
+        "home"
+    )
+
+    # ==========================================
+    # BUSCA MÁXIMA:
+    # 10 JOGOS DO VISITANTE FORA
+    # ==========================================
+
+    away_10 = team_average(
+        league_id,
+        away_id,
+        fixture_id,
+        10,
+        "away"
+    )
+
+    # ==========================================
+    # ÚLTIMOS 5
+    # SEM NOVAS CHAMADAS À API
+    # ==========================================
+
+    home_5 = slice_team_data(
+        home_10,
+        5
+    )
+
+    away_5 = slice_team_data(
+        away_10,
+        5
+    )
+
+    return {
+        "home_10":
+            home_10,
+
+        "away_10":
+            away_10,
+
+        "home_5":
+            home_5,
+
+        "away_5":
+            away_5
+    }
 
 
 # =========================================================
@@ -1472,30 +1738,117 @@ def analysis(fixture_id):
         )
 
         # ==========================================
-        # MANDANTE
-        # SOMENTE JOGOS EM CASA
+        # CARREGA OS 10 UMA VEZ
+        # E CRIA TAMBÉM O RECORTE DE 5
         # ==========================================
 
-        home_data = team_average(
+        samples = prepare_samples(
             league_id,
             home_id,
-            fixture_id,
-            sample,
-            "home"
-        )
-
-        # ==========================================
-        # VISITANTE
-        # SOMENTE JOGOS FORA
-        # ==========================================
-
-        away_data = team_average(
-            league_id,
             away_id,
-            fixture_id,
-            sample,
-            "away"
+            fixture_id
         )
+
+        home_10 = samples[
+            "home_10"
+        ]
+
+        away_10 = samples[
+            "away_10"
+        ]
+
+        home_5 = samples[
+            "home_5"
+        ]
+
+        away_5 = samples[
+            "away_5"
+        ]
+
+        # ==========================================
+        # CRUZAMENTOS DOS 10
+        # ==========================================
+
+        home_cross_10 = (
+            build_cross_lines(
+                home_10,
+                away_10
+            )
+        )
+
+        away_cross_10 = (
+            build_cross_lines(
+                away_10,
+                home_10
+            )
+        )
+
+        # ==========================================
+        # CRUZAMENTOS DOS 5
+        # ==========================================
+
+        home_cross_5 = (
+            build_cross_lines(
+                home_5,
+                away_5
+            )
+        )
+
+        away_cross_5 = (
+            build_cross_lines(
+                away_5,
+                home_5
+            )
+        )
+
+        # ==========================================
+        # COMPARAÇÃO 5 X 10
+        # ==========================================
+
+        home_trends = (
+            build_trend_lines(
+                home_cross_5,
+                home_cross_10
+            )
+        )
+
+        away_trends = (
+            build_trend_lines(
+                away_cross_5,
+                away_cross_10
+            )
+        )
+
+        # ==========================================
+        # O BOTÃO 5 / 10 CONTINUA FUNCIONANDO
+        # NORMALMENTE PARA AS ESTATÍSTICAS DA TELA.
+        # ==========================================
+
+        if sample == 5:
+
+            home_data = home_5
+            away_data = away_5
+
+            home_cross = (
+                home_cross_5
+            )
+
+            away_cross = (
+                away_cross_5
+            )
+
+        else:
+
+            home_data = home_10
+            away_data = away_10
+
+            home_cross = (
+                home_cross_10
+            )
+
+            away_cross = (
+                away_cross_10
+            )
 
         h = home_data[
             "averages"
@@ -1517,56 +1870,31 @@ def analysis(fixture_id):
             ]
         )
 
-        # ==========================================
-        # CRUZAMENTO
-        #
-        # HOME:
-        # mandante produz
-        # x
-        # visitante concede fora
-        #
-        # AWAY:
-        # visitante produz fora
-        # x
-        # mandante concede em casa
-        # ==========================================
-
-        home_cross = (
-            build_cross_lines(
-                home_data,
-                away_data
-            )
-        )
-
-        away_cross = (
-            build_cross_lines(
-                away_data,
-                home_data
-            )
-        )
-
         return jsonify({
             "source":
                 "PITCHAPI",
 
             "version":
-                "CROSS-V1",
+                "TREND-V1",
 
             "sample_size":
                 sample,
 
             "home": {
-                "id": home_id,
+                "id":
+                    home_id,
 
-                "name": home.get(
-                    "name",
-                    "Mandante"
-                ),
+                "name":
+                    home.get(
+                        "name",
+                        "Mandante"
+                    ),
 
-                "logo": home.get(
-                    "image_url",
-                    ""
-                ),
+                "logo":
+                    home.get(
+                        "image_url",
+                        ""
+                    ),
 
                 "venue":
                     "home",
@@ -1576,19 +1904,27 @@ def analysis(fixture_id):
                         "matches_used"
                     ],
 
+                "matches_5":
+                    home_5[
+                        "matches_used"
+                    ],
+
+                "matches_10":
+                    home_10[
+                        "matches_used"
+                    ],
+
                 "coverage":
                     home_data[
                         "coverage"
                     ],
 
-                # NOVO
-                "averages": h,
+                "averages":
+                    h,
 
-                # NOVO
                 "conceded":
                     home_conceded,
 
-                # NOVO
                 "conceded_coverage":
                     home_data[
                         "conceded_coverage"
@@ -1596,17 +1932,20 @@ def analysis(fixture_id):
             },
 
             "away": {
-                "id": away_id,
+                "id":
+                    away_id,
 
-                "name": away.get(
-                    "name",
-                    "Visitante"
-                ),
+                "name":
+                    away.get(
+                        "name",
+                        "Visitante"
+                    ),
 
-                "logo": away.get(
-                    "image_url",
-                    ""
-                ),
+                "logo":
+                    away.get(
+                        "image_url",
+                        ""
+                    ),
 
                 "venue":
                     "away",
@@ -1616,19 +1955,27 @@ def analysis(fixture_id):
                         "matches_used"
                     ],
 
+                "matches_5":
+                    away_5[
+                        "matches_used"
+                    ],
+
+                "matches_10":
+                    away_10[
+                        "matches_used"
+                    ],
+
                 "coverage":
                     away_data[
                         "coverage"
                     ],
 
-                # NOVO
-                "averages": a,
+                "averages":
+                    a,
 
-                # NOVO
                 "conceded":
                     away_conceded,
 
-                # NOVO
                 "conceded_coverage":
                     away_data[
                         "conceded_coverage"
@@ -1636,7 +1983,7 @@ def analysis(fixture_id):
             },
 
             # ==========================================
-            # MÉDIAS QUE JÁ APARECEM NO SITE
+            # ESTATÍSTICAS DA ABA SELECIONADA
             # ==========================================
 
             "stats": [
@@ -1708,8 +2055,7 @@ def analysis(fixture_id):
             ],
 
             # ==========================================
-            # LINHAS ANTIGAS
-            # CONTINUAM FUNCIONANDO
+            # LINHAS DA ABA SELECIONADA
             # ==========================================
 
             "lines": {
@@ -1725,8 +2071,7 @@ def analysis(fixture_id):
             },
 
             # ==========================================
-            # NOVO:
-            # LINHAS QUE CADA EQUIPE CEDEU
+            # LINHAS CEDIDAS
             # ==========================================
 
             "conceded_lines": {
@@ -1742,13 +2087,51 @@ def analysis(fixture_id):
             },
 
             # ==========================================
-            # NOVO:
-            # PRODUZ X ADVERSÁRIO CEDE
+            # CRUZAMENTO DA ABA SELECIONADA
             # ==========================================
 
             "cross": {
-                "home": home_cross,
-                "away": away_cross
+                "home":
+                    home_cross,
+
+                "away":
+                    away_cross
+            },
+
+            # ==========================================
+            # NOVO:
+            # CRUZAMENTOS DOS DOIS PERÍODOS
+            # ==========================================
+
+            "cross_samples": {
+                "last_5": {
+                    "home":
+                        home_cross_5,
+
+                    "away":
+                        away_cross_5
+                },
+
+                "last_10": {
+                    "home":
+                        home_cross_10,
+
+                    "away":
+                        away_cross_10
+                }
+            },
+
+            # ==========================================
+            # NOVO:
+            # TENDÊNCIA 5 X 10
+            # ==========================================
+
+            "trends": {
+                "home":
+                    home_trends,
+
+                "away":
+                    away_trends
             }
         })
 
@@ -1759,18 +2142,28 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "CROSS-V1",
+                "TREND-V1",
 
             "sample_size":
                 sample,
 
-            "stats": [],
+            "stats":
+                [],
 
-            "lines": {},
+            "lines":
+                {},
 
-            "conceded_lines": {},
+            "conceded_lines":
+                {},
 
-            "cross": {},
+            "cross":
+                {},
+
+            "cross_samples":
+                {},
+
+            "trends":
+                {},
 
             "error":
                 str(error)
@@ -1810,6 +2203,14 @@ def lines(fixture_id):
             f"{fixture_id}"
         )
 
+        if not isinstance(
+            fixture,
+            dict
+        ):
+            raise RuntimeError(
+                "Partida não encontrada."
+            )
+
         league = (
             fixture.get("league")
             or {}
@@ -1829,40 +2230,134 @@ def lines(fixture_id):
             "id"
         )
 
-        home_data = team_average(
-            league_id,
-            home.get("id"),
-            fixture_id,
-            sample,
-            "home"
+        home_id = home.get(
+            "id"
         )
 
-        away_data = team_average(
-            league_id,
-            away.get("id"),
-            fixture_id,
-            sample,
-            "away"
+        away_id = away.get(
+            "id"
         )
+
+        samples = prepare_samples(
+            league_id,
+            home_id,
+            away_id,
+            fixture_id
+        )
+
+        home_10 = samples[
+            "home_10"
+        ]
+
+        away_10 = samples[
+            "away_10"
+        ]
+
+        home_5 = samples[
+            "home_5"
+        ]
+
+        away_5 = samples[
+            "away_5"
+        ]
+
+        home_cross_10 = (
+            build_cross_lines(
+                home_10,
+                away_10
+            )
+        )
+
+        away_cross_10 = (
+            build_cross_lines(
+                away_10,
+                home_10
+            )
+        )
+
+        home_cross_5 = (
+            build_cross_lines(
+                home_5,
+                away_5
+            )
+        )
+
+        away_cross_5 = (
+            build_cross_lines(
+                away_5,
+                home_5
+            )
+        )
+
+        home_trends = (
+            build_trend_lines(
+                home_cross_5,
+                home_cross_10
+            )
+        )
+
+        away_trends = (
+            build_trend_lines(
+                away_cross_5,
+                away_cross_10
+            )
+        )
+
+        if sample == 5:
+
+            home_data = home_5
+            away_data = away_5
+
+            home_cross = (
+                home_cross_5
+            )
+
+            away_cross = (
+                away_cross_5
+            )
+
+        else:
+
+            home_data = home_10
+            away_data = away_10
+
+            home_cross = (
+                home_cross_10
+            )
+
+            away_cross = (
+                away_cross_10
+            )
 
         return jsonify({
             "sample_size":
                 sample,
 
             "version":
-                "CROSS-V1",
+                "TREND-V1",
 
             "home": {
-                "name": home.get(
-                    "name",
-                    "Mandante"
-                ),
+                "name":
+                    home.get(
+                        "name",
+                        "Mandante"
+                    ),
 
                 "venue":
                     "home",
 
                 "matches_used":
                     home_data[
+                        "matches_used"
+                    ],
+
+                "matches_5":
+                    home_5[
+                        "matches_used"
+                    ],
+
+                "matches_10":
+                    home_10[
                         "matches_used"
                     ],
 
@@ -1878,16 +2373,27 @@ def lines(fixture_id):
             },
 
             "away": {
-                "name": away.get(
-                    "name",
-                    "Visitante"
-                ),
+                "name":
+                    away.get(
+                        "name",
+                        "Visitante"
+                    ),
 
                 "venue":
                     "away",
 
                 "matches_used":
                     away_data[
+                        "matches_used"
+                    ],
+
+                "matches_5":
+                    away_5[
+                        "matches_used"
+                    ],
+
+                "matches_10":
+                    away_10[
                         "matches_used"
                     ],
 
@@ -1904,16 +2410,36 @@ def lines(fixture_id):
 
             "cross": {
                 "home":
-                    build_cross_lines(
-                        home_data,
-                        away_data
-                    ),
+                    home_cross,
 
                 "away":
-                    build_cross_lines(
-                        away_data,
-                        home_data
-                    )
+                    away_cross
+            },
+
+            "cross_samples": {
+                "last_5": {
+                    "home":
+                        home_cross_5,
+
+                    "away":
+                        away_cross_5
+                },
+
+                "last_10": {
+                    "home":
+                        home_cross_10,
+
+                    "away":
+                        away_cross_10
+                }
+            },
+
+            "trends": {
+                "home":
+                    home_trends,
+
+                "away":
+                    away_trends
             }
         })
 
