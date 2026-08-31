@@ -1195,7 +1195,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "TODAY-FIX-V5"
+        "version": "TODAY-FIX-V6"
     })
 
 
@@ -1446,6 +1446,10 @@ def fixtures_today():
         matches = []
         seen_ids = set()
 
+        # A PitchAPI trabalha com data de calendário UTC.
+        # Como o site exibe horário de Brasília, consultamos
+        # ontem, hoje e amanhã na API e depois mantemos apenas
+        # as partidas que realmente caem em "hoje" no Brasil.
         dates_to_check = [
             (
                 now_local
@@ -1458,13 +1462,17 @@ def fixtures_today():
             ).strftime("%Y-%m-%d")
         ]
 
-        # 1) Busca normal por data.
+        errors = []
+
         for date_value in dates_to_check:
             try:
                 data = api_get(
                     f"v1/date/{date_value}?status=all"
                 )
-            except Exception:
+            except Exception as error:
+                errors.append(
+                    f"{date_value}: {error}"
+                )
                 continue
 
             if not isinstance(data, dict):
@@ -1487,26 +1495,6 @@ def fixtures_today():
 
                 seen_ids.add(match_id)
                 matches.append(match)
-
-        # 2) Busca extra usando temporadas explícitas
-        #    anunciadas em /v1/leagues.
-        league_matches = (
-            fixtures_from_all_leagues(
-                today
-            )
-        )
-
-        for match in league_matches:
-            match_id = match.get("id")
-
-            if not match_id:
-                continue
-
-            if match_id in seen_ids:
-                continue
-
-            seen_ids.add(match_id)
-            matches.append(match)
 
         matches.sort(
             key=lambda match: (
@@ -1532,8 +1520,9 @@ def fixtures_today():
             "message": "",
             "date": today,
             "timezone": TIMEZONE,
-            "source": "date+season-leagues",
-            "fixtures": normalized
+            "source": "date-status-all",
+            "fixtures": normalized,
+            "api_warnings": errors
         })
 
     except Exception as error:
@@ -1694,7 +1683,7 @@ def build_analysis_payload(
 
     return {
         "source": "PITCHAPI",
-        "version": "TODAY-FIX-V5",
+        "version": "TODAY-FIX-V6",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -1859,7 +1848,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI",
-            "version": "TODAY-FIX-V5",
+            "version": "TODAY-FIX-V6",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
