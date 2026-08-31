@@ -451,9 +451,17 @@ def sot_from_shots(
 
 # =========================================================
 # CARTÕES
+#
+# Agora os cartões são separados:
+#
+# yellow_cards = amarelos
+# red_cards    = vermelhos
+# cards        = total
+#
+# O total fica guardado apenas para compatibilidade.
 # =========================================================
 
-def get_cards(
+def get_card_breakdown(
     match_id,
     team_id
 ):
@@ -479,7 +487,8 @@ def get_cards(
     if events is None:
         return None
 
-    total = 0
+    yellow = 0
+    red = 0
 
     for event in events:
 
@@ -503,13 +512,24 @@ def get_cards(
             .replace("-", "")
         )
 
-        if event_type in (
-            "yellowcard",
-            "redcard"
-        ):
-            total += 1
+        if event_type == "yellowcard":
+            yellow += 1
 
-    return float(total)
+        elif event_type == "redcard":
+            red += 1
+
+    return {
+        "yellow_cards":
+            float(yellow),
+
+        "red_cards":
+            float(red),
+
+        "cards":
+            float(
+                yellow + red
+            )
+    }
 
 
 # =========================================================
@@ -718,18 +738,61 @@ def team_match_values(
             team_id
         )
 
-    cards = get_cards(
+    card_data = get_card_breakdown(
         match_id,
         team_id
     )
 
+    if card_data is None:
+
+        yellow_cards = None
+        red_cards = None
+        cards = None
+
+    else:
+
+        yellow_cards = (
+            card_data[
+                "yellow_cards"
+            ]
+        )
+
+        red_cards = (
+            card_data[
+                "red_cards"
+            ]
+        )
+
+        cards = (
+            card_data[
+                "cards"
+            ]
+        )
+
     return {
-        "goals": goals,
-        "corners": corners,
-        "shots": shots,
-        "sot": sot,
-        "cards": cards,
-        "fouls": fouls
+        "goals":
+            goals,
+
+        "corners":
+            corners,
+
+        "shots":
+            shots,
+
+        "sot":
+            sot,
+
+        "yellow_cards":
+            yellow_cards,
+
+        "red_cards":
+            red_cards,
+
+        "cards":
+            cards,
+
+        "fouls":
+            fouls
     }
 
 
@@ -790,6 +853,8 @@ def team_average(
         "corners": [],
         "shots": [],
         "sot": [],
+        "yellow_cards": [],
+        "red_cards": [],
         "cards": [],
         "fouls": []
     }
@@ -799,6 +864,8 @@ def team_average(
         "corners": [],
         "shots": [],
         "sot": [],
+        "yellow_cards": [],
+        "red_cards": [],
         "cards": [],
         "fouls": []
     }
@@ -835,6 +902,8 @@ def team_average(
                 "corners": None,
                 "shots": None,
                 "sot": None,
+                "yellow_cards": None,
+                "red_cards": None,
                 "cards": None,
                 "fouls": None
             }
@@ -874,9 +943,11 @@ def team_average(
                 ""
             ),
 
-            "produced": own_row,
+            "produced":
+                own_row,
 
-            "conceded": conceded_row
+            "conceded":
+                conceded_row
         })
 
     return {
@@ -930,14 +1001,7 @@ def team_average(
 
 
 # =========================================================
-# CRIAR RECORTE DOS MESMOS DADOS
-#
-# IMPORTANTE:
-# Os dados dos 10 jogos já foram carregados.
-# Para os últimos 5 nós apenas usamos
-# os 5 primeiros da lista.
-#
-# NÃO fazemos uma nova busca na API.
+# RECORTE 5 JOGOS
 # =========================================================
 
 def slice_team_data(
@@ -1019,7 +1083,7 @@ def slice_team_data(
 
 
 # =========================================================
-# CONTAGEM DE LINHAS
+# CONTAGEM DAS LINHAS
 # =========================================================
 
 def line_result(
@@ -1035,10 +1099,17 @@ def line_result(
     if not valid:
 
         return {
-            "line": threshold,
-            "hits": 0,
-            "games": 0,
-            "rate": None
+            "line":
+                threshold,
+
+            "hits":
+                0,
+
+            "games":
+                0,
+
+            "rate":
+                None
         }
 
     hits = sum(
@@ -1071,9 +1142,12 @@ def line_result(
 
 # =========================================================
 # DEFINIÇÃO DAS LINHAS
+#
+# CARTÕES AGORA SÃO SEPARADOS.
 # =========================================================
 
 LINE_DEFINITIONS = [
+
     (
         "goals",
         "+0.5 Gols",
@@ -1116,17 +1190,41 @@ LINE_DEFINITIONS = [
         3.5
     ),
 
+    # =============================================
+    # AMARELOS
+    # =============================================
+
     (
-        "cards",
-        "+0.5 Cartões",
+        "yellow_cards",
+        "+0.5 Cartões amarelos",
         0.5
     ),
 
     (
-        "cards",
-        "+1.5 Cartões",
+        "yellow_cards",
+        "+1.5 Cartões amarelos",
         1.5
     ),
+
+    (
+        "yellow_cards",
+        "+2.5 Cartões amarelos",
+        2.5
+    ),
+
+    # =============================================
+    # VERMELHOS
+    # =============================================
+
+    (
+        "red_cards",
+        "+0.5 Cartões vermelhos",
+        0.5
+    ),
+
+    # =============================================
+    # FALTAS
+    # =============================================
 
     (
         "fouls",
@@ -1197,7 +1295,8 @@ def build_conceded_lines(
 
 
 # =========================================================
-# CRUZAMENTO PRODUZ X ADVERSÁRIO CEDE
+# CRUZAMENTO
+# PRODUZ × ADVERSÁRIO
 # =========================================================
 
 def build_cross_lines(
@@ -1284,6 +1383,7 @@ def build_cross_lines(
             )
 
         else:
+
             cross_rate = None
 
         averages = [
@@ -1309,6 +1409,7 @@ def build_cross_lines(
             )
 
         else:
+
             cross_average = None
 
         result.append({
@@ -1372,14 +1473,7 @@ def build_cross_lines(
 
 
 # =========================================================
-# JUNTAR ÚLTIMOS 5 + ÚLTIMOS 10
-#
-# Cada linha fica com:
-#
-# recent_5
-# recent_10
-#
-# para o frontend comparar tendência.
+# TENDÊNCIA 5 × 10
 # =========================================================
 
 def build_trend_lines(
@@ -1407,12 +1501,18 @@ def build_trend_lines(
     all_keys = []
 
     for key in map_10:
+
         if key not in all_keys:
-            all_keys.append(key)
+            all_keys.append(
+                key
+            )
 
     for key in map_5:
+
         if key not in all_keys:
-            all_keys.append(key)
+            all_keys.append(
+                key
+            )
 
     for key in all_keys:
 
@@ -1431,26 +1531,17 @@ def build_trend_lines(
             or item_5
         )
 
-        rate_5 = item_5.get(
-            "cross_rate"
+        rate_5 = (
+            item_5.get(
+                "cross_rate"
+            )
         )
 
-        rate_10 = item_10.get(
-            "cross_rate"
+        rate_10 = (
+            item_10.get(
+                "cross_rate"
+            )
         )
-
-        # ==========================================
-        # TENDÊNCIA
-        #
-        # diferença de até 5 pontos:
-        # MANTIDA
-        #
-        # últimos 5 > últimos 10 + 5:
-        # SUBINDO
-        #
-        # últimos 5 < últimos 10 - 5:
-        # ENFRAQUECENDO
-        # ==========================================
 
         trend = "sem_dados"
         difference = None
@@ -1467,23 +1558,34 @@ def build_trend_lines(
             )
 
             if difference > 5:
+
                 trend = "subindo"
 
             elif difference < -5:
-                trend = "enfraquecendo"
+
+                trend = (
+                    "enfraquecendo"
+                )
 
             else:
+
                 trend = "mantida"
 
         result.append({
             "metric":
-                base.get("metric"),
+                base.get(
+                    "metric"
+                ),
 
             "label":
-                base.get("label"),
+                base.get(
+                    "label"
+                ),
 
             "line":
-                base.get("line"),
+                base.get(
+                    "line"
+                ),
 
             "recent_5":
                 item_5,
@@ -1536,7 +1638,7 @@ def health():
             TIMEZONE,
 
         "version":
-            "TREND-V1"
+            "CARDS-SPLIT-V1"
     })
 
 
@@ -1546,6 +1648,7 @@ def health():
 
 @app.get("/api/fixtures/today")
 def fixtures_today():
+
     try:
 
         today = datetime.now(
@@ -1601,10 +1704,7 @@ def fixtures_today():
 
 
 # =========================================================
-# PREPARAR DADOS 5 E 10
-#
-# UMA ÚNICA BUSCA DOS 10 JOGOS.
-# DEPOIS RECORTAMOS OS 5.
+# PREPARAR ÚLTIMOS 5 E 10
 # =========================================================
 
 def prepare_samples(
@@ -1613,10 +1713,6 @@ def prepare_samples(
     away_id,
     fixture_id
 ):
-    # ==========================================
-    # BUSCA MÁXIMA:
-    # 10 JOGOS DO MANDANTE EM CASA
-    # ==========================================
 
     home_10 = team_average(
         league_id,
@@ -1626,11 +1722,6 @@ def prepare_samples(
         "home"
     )
 
-    # ==========================================
-    # BUSCA MÁXIMA:
-    # 10 JOGOS DO VISITANTE FORA
-    # ==========================================
-
     away_10 = team_average(
         league_id,
         away_id,
@@ -1638,11 +1729,6 @@ def prepare_samples(
         10,
         "away"
     )
-
-    # ==========================================
-    # ÚLTIMOS 5
-    # SEM NOVAS CHAMADAS À API
-    # ==========================================
 
     home_5 = slice_team_data(
         home_10,
@@ -1679,6 +1765,7 @@ def prepare_samples(
 def analysis(fixture_id):
 
     try:
+
         sample = int(
             request.args.get(
                 "sample",
@@ -1687,12 +1774,14 @@ def analysis(fixture_id):
         )
 
     except Exception:
+
         sample = 10
 
     if sample not in (
         5,
         10
     ):
+
         sample = 10
 
     try:
@@ -1706,6 +1795,7 @@ def analysis(fixture_id):
             fixture,
             dict
         ):
+
             raise RuntimeError(
                 "Partida não encontrada."
             )
@@ -1725,22 +1815,17 @@ def analysis(fixture_id):
             or {}
         )
 
-        league_id = league.get(
-            "id"
+        league_id = (
+            league.get("id")
         )
 
-        home_id = home.get(
-            "id"
+        home_id = (
+            home.get("id")
         )
 
-        away_id = away.get(
-            "id"
+        away_id = (
+            away.get("id")
         )
-
-        # ==========================================
-        # CARREGA OS 10 UMA VEZ
-        # E CRIA TAMBÉM O RECORTE DE 5
-        # ==========================================
 
         samples = prepare_samples(
             league_id,
@@ -1749,25 +1834,25 @@ def analysis(fixture_id):
             fixture_id
         )
 
-        home_10 = samples[
-            "home_10"
-        ]
+        home_10 = (
+            samples["home_10"]
+        )
 
-        away_10 = samples[
-            "away_10"
-        ]
+        away_10 = (
+            samples["away_10"]
+        )
 
-        home_5 = samples[
-            "home_5"
-        ]
+        home_5 = (
+            samples["home_5"]
+        )
 
-        away_5 = samples[
-            "away_5"
-        ]
+        away_5 = (
+            samples["away_5"]
+        )
 
-        # ==========================================
-        # CRUZAMENTOS DOS 10
-        # ==========================================
+        # =============================================
+        # CRUZAMENTO 10
+        # =============================================
 
         home_cross_10 = (
             build_cross_lines(
@@ -1783,9 +1868,9 @@ def analysis(fixture_id):
             )
         )
 
-        # ==========================================
-        # CRUZAMENTOS DOS 5
-        # ==========================================
+        # =============================================
+        # CRUZAMENTO 5
+        # =============================================
 
         home_cross_5 = (
             build_cross_lines(
@@ -1801,9 +1886,9 @@ def analysis(fixture_id):
             )
         )
 
-        # ==========================================
-        # COMPARAÇÃO 5 X 10
-        # ==========================================
+        # =============================================
+        # TENDÊNCIAS
+        # =============================================
 
         home_trends = (
             build_trend_lines(
@@ -1819,15 +1904,19 @@ def analysis(fixture_id):
             )
         )
 
-        # ==========================================
-        # O BOTÃO 5 / 10 CONTINUA FUNCIONANDO
-        # NORMALMENTE PARA AS ESTATÍSTICAS DA TELA.
-        # ==========================================
+        # =============================================
+        # ABA SELECIONADA
+        # =============================================
 
         if sample == 5:
 
-            home_data = home_5
-            away_data = away_5
+            home_data = (
+                home_5
+            )
+
+            away_data = (
+                away_5
+            )
 
             home_cross = (
                 home_cross_5
@@ -1839,8 +1928,13 @@ def analysis(fixture_id):
 
         else:
 
-            home_data = home_10
-            away_data = away_10
+            home_data = (
+                home_10
+            )
+
+            away_data = (
+                away_10
+            )
 
             home_cross = (
                 home_cross_10
@@ -1850,13 +1944,17 @@ def analysis(fixture_id):
                 away_cross_10
             )
 
-        h = home_data[
-            "averages"
-        ]
+        h = (
+            home_data[
+                "averages"
+            ]
+        )
 
-        a = away_data[
-            "averages"
-        ]
+        a = (
+            away_data[
+                "averages"
+            ]
+        )
 
         home_conceded = (
             home_data[
@@ -1875,7 +1973,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "TREND-V1",
+                "CARDS-SPLIT-V1",
 
             "sample_size":
                 sample,
@@ -1982,9 +2080,9 @@ def analysis(fixture_id):
                     ]
             },
 
-            # ==========================================
-            # ESTATÍSTICAS DA ABA SELECIONADA
-            # ==========================================
+            # =============================================
+            # ESTATÍSTICAS
+            # =============================================
 
             "stats": [
                 {
@@ -1992,10 +2090,14 @@ def analysis(fixture_id):
                         "Gols",
 
                     "home":
-                        h["goals"],
+                        h.get(
+                            "goals"
+                        ),
 
                     "away":
-                        a["goals"]
+                        a.get(
+                            "goals"
+                        )
                 },
 
                 {
@@ -2003,10 +2105,14 @@ def analysis(fixture_id):
                         "Escanteios",
 
                     "home":
-                        h["corners"],
+                        h.get(
+                            "corners"
+                        ),
 
                     "away":
-                        a["corners"]
+                        a.get(
+                            "corners"
+                        )
                 },
 
                 {
@@ -2014,10 +2120,14 @@ def analysis(fixture_id):
                         "Finalizações",
 
                     "home":
-                        h["shots"],
+                        h.get(
+                            "shots"
+                        ),
 
                     "away":
-                        a["shots"]
+                        a.get(
+                            "shots"
+                        )
                 },
 
                 {
@@ -2025,21 +2135,44 @@ def analysis(fixture_id):
                         "Chutes no gol",
 
                     "home":
-                        h["sot"],
+                        h.get(
+                            "sot"
+                        ),
 
                     "away":
-                        a["sot"]
+                        a.get(
+                            "sot"
+                        )
                 },
 
                 {
                     "label":
-                        "Cartões",
+                        "🟨 Amarelos",
 
                     "home":
-                        h["cards"],
+                        h.get(
+                            "yellow_cards"
+                        ),
 
                     "away":
-                        a["cards"]
+                        a.get(
+                            "yellow_cards"
+                        )
+                },
+
+                {
+                    "label":
+                        "🟥 Vermelhos",
+
+                    "home":
+                        h.get(
+                            "red_cards"
+                        ),
+
+                    "away":
+                        a.get(
+                            "red_cards"
+                        )
                 },
 
                 {
@@ -2047,16 +2180,20 @@ def analysis(fixture_id):
                         "Faltas",
 
                     "home":
-                        h["fouls"],
+                        h.get(
+                            "fouls"
+                        ),
 
                     "away":
-                        a["fouls"]
+                        a.get(
+                            "fouls"
+                        )
                 }
             ],
 
-            # ==========================================
-            # LINHAS DA ABA SELECIONADA
-            # ==========================================
+            # =============================================
+            # LINHAS
+            # =============================================
 
             "lines": {
                 "home":
@@ -2070,9 +2207,9 @@ def analysis(fixture_id):
                     )
             },
 
-            # ==========================================
-            # LINHAS CEDIDAS
-            # ==========================================
+            # =============================================
+            # LINHAS DOS ADVERSÁRIOS
+            # =============================================
 
             "conceded_lines": {
                 "home":
@@ -2086,9 +2223,9 @@ def analysis(fixture_id):
                     )
             },
 
-            # ==========================================
-            # CRUZAMENTO DA ABA SELECIONADA
-            # ==========================================
+            # =============================================
+            # CRUZAMENTO SELECIONADO
+            # =============================================
 
             "cross": {
                 "home":
@@ -2098,10 +2235,9 @@ def analysis(fixture_id):
                     away_cross
             },
 
-            # ==========================================
-            # NOVO:
-            # CRUZAMENTOS DOS DOIS PERÍODOS
-            # ==========================================
+            # =============================================
+            # 5 E 10
+            # =============================================
 
             "cross_samples": {
                 "last_5": {
@@ -2121,10 +2257,9 @@ def analysis(fixture_id):
                 }
             },
 
-            # ==========================================
-            # NOVO:
-            # TENDÊNCIA 5 X 10
-            # ==========================================
+            # =============================================
+            # TENDÊNCIAS
+            # =============================================
 
             "trends": {
                 "home":
@@ -2142,7 +2277,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "TREND-V1",
+                "CARDS-SPLIT-V1",
 
             "sample_size":
                 sample,
@@ -2180,6 +2315,7 @@ def analysis(fixture_id):
 def lines(fixture_id):
 
     try:
+
         sample = int(
             request.args.get(
                 "sample",
@@ -2188,12 +2324,14 @@ def lines(fixture_id):
         )
 
     except Exception:
+
         sample = 10
 
     if sample not in (
         5,
         10
     ):
+
         sample = 10
 
     try:
@@ -2207,6 +2345,7 @@ def lines(fixture_id):
             fixture,
             dict
         ):
+
             raise RuntimeError(
                 "Partida não encontrada."
             )
@@ -2226,16 +2365,16 @@ def lines(fixture_id):
             or {}
         )
 
-        league_id = league.get(
-            "id"
+        league_id = (
+            league.get("id")
         )
 
-        home_id = home.get(
-            "id"
+        home_id = (
+            home.get("id")
         )
 
-        away_id = away.get(
-            "id"
+        away_id = (
+            away.get("id")
         )
 
         samples = prepare_samples(
@@ -2245,21 +2384,29 @@ def lines(fixture_id):
             fixture_id
         )
 
-        home_10 = samples[
-            "home_10"
-        ]
+        home_10 = (
+            samples[
+                "home_10"
+            ]
+        )
 
-        away_10 = samples[
-            "away_10"
-        ]
+        away_10 = (
+            samples[
+                "away_10"
+            ]
+        )
 
-        home_5 = samples[
-            "home_5"
-        ]
+        home_5 = (
+            samples[
+                "home_5"
+            ]
+        )
 
-        away_5 = samples[
-            "away_5"
-        ]
+        away_5 = (
+            samples[
+                "away_5"
+            ]
+        )
 
         home_cross_10 = (
             build_cross_lines(
@@ -2305,8 +2452,13 @@ def lines(fixture_id):
 
         if sample == 5:
 
-            home_data = home_5
-            away_data = away_5
+            home_data = (
+                home_5
+            )
+
+            away_data = (
+                away_5
+            )
 
             home_cross = (
                 home_cross_5
@@ -2318,8 +2470,13 @@ def lines(fixture_id):
 
         else:
 
-            home_data = home_10
-            away_data = away_10
+            home_data = (
+                home_10
+            )
+
+            away_data = (
+                away_10
+            )
 
             home_cross = (
                 home_cross_10
@@ -2334,7 +2491,7 @@ def lines(fixture_id):
                 sample,
 
             "version":
-                "TREND-V1",
+                "CARDS-SPLIT-V1",
 
             "home": {
                 "name":
