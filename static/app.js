@@ -448,12 +448,6 @@ function lineThreshold(label) {
 
 /* ======================================================
    ÍNDICE HISTÓRICO COMBINADO
-
-   70% = média das duas tendências
-   20% = lado mais fraco
-   10% = quantidade de jogos
-
-   NÃO É PROBABILIDADE DE ACERTO.
 ====================================================== */
 
 function crossIndex(item) {
@@ -533,7 +527,7 @@ function crossIndex(item) {
 
 
 /* ======================================================
-   CLASSIFICAÇÃO
+   CLASSIFICAÇÃO DO ÍNDICE
 ====================================================== */
 
 function indexLabel(score) {
@@ -562,7 +556,371 @@ function indexLabel(score) {
 
 
 /* ======================================================
-   VERIFICAR SE A LINHA PASSOU NOS FILTROS
+   TENDÊNCIA 5 X 10
+====================================================== */
+
+function trendInfo(trend) {
+  if (trend === "subindo") {
+    return {
+      icon: "📈",
+      label: "Subindo"
+    };
+  }
+
+
+  if (trend === "enfraquecendo") {
+    return {
+      icon: "📉",
+      label: "Enfraquecendo"
+    };
+  }
+
+
+  if (trend === "mantida") {
+    return {
+      icon: "✅",
+      label: "Mantida"
+    };
+  }
+
+
+  return {
+    icon: "➖",
+    label: "Sem dados"
+  };
+}
+
+
+/* ======================================================
+   LOCALIZAR TENDÊNCIA DA LINHA
+====================================================== */
+
+function findTrend(
+  item,
+  data
+) {
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+
+  const side =
+    item.team === homeName
+      ? "home"
+      : "away";
+
+
+  const trends =
+    data.trends?.[side] || [];
+
+
+  return trends.find(
+    trend =>
+      trend.metric ===
+        item.metric &&
+      Number(trend.line) ===
+        Number(item.line)
+  ) || null;
+}
+
+
+/* ======================================================
+   BLOCO VISUAL DA TENDÊNCIA
+====================================================== */
+
+function trendBlock(
+  item,
+  data
+) {
+  const trend =
+    findTrend(
+      item,
+      data
+    );
+
+
+  if (!trend) {
+
+    return `
+      <div
+        style="
+          margin-top:10px;
+          padding:11px;
+          border-radius:10px;
+          background:
+          rgba(255,255,255,.035);
+          font-size:12px;
+          opacity:.75;
+        "
+      >
+        Tendência 5 × 10:
+        sem dados suficientes.
+      </div>
+    `;
+  }
+
+
+  const recent5 =
+    trend.recent_5 || {};
+
+
+  const recent10 =
+    trend.recent_10 || {};
+
+
+  const produced5 =
+    recent5.produced || {};
+
+
+  const produced10 =
+    recent10.produced || {};
+
+
+  const conceded5 =
+    recent5.opponent_conceded || {};
+
+
+  const conceded10 =
+    recent10.opponent_conceded || {};
+
+
+  const info =
+    trendInfo(
+      trend.trend
+    );
+
+
+  const difference =
+    trend.difference;
+
+
+  let differenceText =
+    "—";
+
+
+  if (
+    difference !== null &&
+    difference !== undefined &&
+    !Number.isNaN(
+      Number(difference)
+    )
+  ) {
+
+    const value =
+      Number(difference);
+
+
+    differenceText =
+      value > 0
+        ? `+${value.toFixed(1)} p.p.`
+        : `${value.toFixed(1)} p.p.`;
+
+  }
+
+
+  return `
+
+    <div
+      style="
+        margin-top:10px;
+        padding:12px;
+        border-radius:10px;
+        background:
+        rgba(255,255,255,.045);
+      "
+    >
+
+      <div
+        style="
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:center;
+          gap:10px;
+          margin-bottom:10px;
+        "
+      >
+
+        <strong
+          style="
+            font-size:13px;
+          "
+        >
+          Tendência 5 × 10
+        </strong>
+
+
+        <strong
+          style="
+            font-size:13px;
+          "
+        >
+          ${info.icon}
+          ${info.label}
+        </strong>
+
+      </div>
+
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:
+          1fr 1fr;
+          gap:8px;
+        "
+      >
+
+        <div
+          style="
+            padding:9px;
+            border-radius:9px;
+            background:
+            rgba(255,255,255,.035);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:3px;
+            "
+          >
+            Últimos 10
+          </div>
+
+
+          <strong>
+            ${formatRate(
+              recent10.cross_rate
+            )}
+          </strong>
+
+        </div>
+
+
+        <div
+          style="
+            padding:9px;
+            border-radius:9px;
+            background:
+            rgba(255,255,255,.035);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:3px;
+            "
+          >
+            Últimos 5
+          </div>
+
+
+          <strong>
+            ${formatRate(
+              recent5.cross_rate
+            )}
+          </strong>
+
+        </div>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:9px;
+          font-size:12px;
+          line-height:1.6;
+          opacity:.78;
+        "
+      >
+
+        Equipe produz:
+
+        <strong>
+          ${formatRate(
+            produced10.rate
+          )}
+        </strong>
+        nos 10
+
+        →
+
+        <strong>
+          ${formatRate(
+            produced5.rate
+          )}
+        </strong>
+        nos 5
+
+        <br>
+
+
+        Adversário concede:
+
+        <strong>
+          ${formatRate(
+            conceded10.rate
+          )}
+        </strong>
+        nos 10
+
+        →
+
+        <strong>
+          ${formatRate(
+            conceded5.rate
+          )}
+        </strong>
+        nos 5
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:9px;
+          padding-top:9px;
+          border-top:
+          1px solid
+          rgba(255,255,255,.07);
+          display:flex;
+          justify-content:
+          space-between;
+          align-items:center;
+          gap:10px;
+          font-size:12px;
+        "
+      >
+
+        <span
+          style="
+            opacity:.7;
+          "
+        >
+          Variação
+        </span>
+
+
+        <strong>
+          ${differenceText}
+        </strong>
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+
+/* ======================================================
+   FILTROS
 ====================================================== */
 
 function linePassesFilters(item) {
@@ -607,7 +965,7 @@ function linePassesFilters(item) {
 
 
 /* ======================================================
-   MOTIVO DA LINHA SER DESCARTADA
+   MOTIVOS DE DESCARTE
 ====================================================== */
 
 function rejectionReasons(item) {
@@ -691,7 +1049,7 @@ function rejectionReasons(item) {
 
 
 /* ======================================================
-   PREPARAR LINHAS DE UM TIME
+   PREPARAR LINHAS
 ====================================================== */
 
 function prepareTeamLines(
@@ -717,14 +1075,7 @@ function prepareTeamLines(
 
 
 /* ======================================================
-   ESCOLHER SÓ UMA LINHA POR MÉTRICA
-
-   IMPORTANTE:
-   Aqui ainda entram aprovadas e descartadas.
-
-   Assim podemos mostrar ao usuário
-   por que determinada estatística
-   não passou no filtro.
+   UMA LINHA POR MÉTRICA
 ====================================================== */
 
 function chooseBestPerMetric(items) {
@@ -760,11 +1111,6 @@ function chooseBestPerMetric(items) {
         current.index ?? -1;
 
 
-      /*
-        Primeiro:
-        maior índice histórico.
-      */
-
       if (
         candidateIndex >
         currentIndex
@@ -776,11 +1122,6 @@ function chooseBestPerMetric(items) {
         return;
       }
 
-
-      /*
-        Segundo:
-        maior força combinada.
-      */
 
       if (
         candidateIndex ===
@@ -799,11 +1140,6 @@ function chooseBestPerMetric(items) {
         return;
       }
 
-
-      /*
-        Terceiro:
-        linha mais alta.
-      */
 
       if (
         candidateIndex ===
@@ -834,7 +1170,7 @@ function chooseBestPerMetric(items) {
 
 
 /* ======================================================
-   ORDENAR POR FORÇA
+   ORDENAR
 ====================================================== */
 
 function sortOpportunities(items) {
@@ -897,7 +1233,7 @@ function sortOpportunities(items) {
 
 
 /* ======================================================
-   CLASSIFICAR TODAS AS OPORTUNIDADES
+   CLASSIFICAR OPORTUNIDADES
 ====================================================== */
 
 function classifyOpportunities(data) {
@@ -1300,6 +1636,12 @@ function opportunityCard(
 
       </div>
 
+
+      ${trendBlock(
+        item,
+        data
+      )}
+
     </div>
 
   `;
@@ -1456,6 +1798,12 @@ function discardedCard(
 
       </div>
 
+
+      ${trendBlock(
+        item,
+        data
+      )}
+
     </div>
 
   `;
@@ -1528,7 +1876,8 @@ function renderBestOpportunities(data) {
 
         O sistema cruza o desempenho
         da equipe com o que o adversário
-        costuma conceder.
+        costuma conceder e compara
+        Últimos 5 × Últimos 10.
 
       </p>
 
@@ -1555,8 +1904,13 @@ function renderBestOpportunities(data) {
         é uma classificação baseada
         no histórico recente.
 
-        Ele não representa probabilidade
-        garantida de acerto.
+        A tendência compara os últimos
+        5 jogos com o recorte de até
+        10 jogos.
+
+        Nenhum desses indicadores
+        representa garantia ou
+        probabilidade certa de acerto.
 
       </div>
 
