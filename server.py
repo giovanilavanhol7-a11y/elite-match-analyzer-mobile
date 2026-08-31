@@ -135,6 +135,65 @@ def normalize_name(value):
     )
 
 
+def clean_text(value):
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+
+    return text
+
+
+# =========================================================
+# CONTEXTO DA PARTIDA
+# =========================================================
+
+def build_match_context(fixture):
+    referee = clean_text(
+        fixture.get("referee")
+    )
+
+    stadium = clean_text(
+        fixture.get("stadium")
+    )
+
+    round_name = clean_text(
+        fixture.get("round_name")
+    )
+
+    date = clean_text(
+        fixture.get("date")
+    )
+
+    status = clean_text(
+        fixture.get("status")
+    )
+
+    kickoff = match_time(
+        fixture.get("time_utc")
+    )
+
+    return {
+        "referee":
+            referee or None,
+
+        "stadium":
+            stadium or None,
+
+        "round":
+            round_name or None,
+
+        "date":
+            date or None,
+
+        "time":
+            kickoff or None,
+
+        "status":
+            status or None
+    }
+
+
 # =========================================================
 # NORMALIZAR PARTIDA
 # =========================================================
@@ -451,14 +510,6 @@ def sot_from_shots(
 
 # =========================================================
 # CARTÕES
-#
-# Agora os cartões são separados:
-#
-# yellow_cards = amarelos
-# red_cards    = vermelhos
-# cards        = total
-#
-# O total fica guardado apenas para compatibilidade.
 # =========================================================
 
 def get_card_breakdown(
@@ -1142,8 +1193,6 @@ def line_result(
 
 # =========================================================
 # DEFINIÇÃO DAS LINHAS
-#
-# CARTÕES AGORA SÃO SEPARADOS.
 # =========================================================
 
 LINE_DEFINITIONS = [
@@ -1190,10 +1239,6 @@ LINE_DEFINITIONS = [
         3.5
     ),
 
-    # =============================================
-    # AMARELOS
-    # =============================================
-
     (
         "yellow_cards",
         "+0.5 Cartões amarelos",
@@ -1212,19 +1257,11 @@ LINE_DEFINITIONS = [
         2.5
     ),
 
-    # =============================================
-    # VERMELHOS
-    # =============================================
-
     (
         "red_cards",
         "+0.5 Cartões vermelhos",
         0.5
     ),
-
-    # =============================================
-    # FALTAS
-    # =============================================
 
     (
         "fouls",
@@ -1296,7 +1333,6 @@ def build_conceded_lines(
 
 # =========================================================
 # CRUZAMENTO
-# PRODUZ × ADVERSÁRIO
 # =========================================================
 
 def build_cross_lines(
@@ -1638,7 +1674,7 @@ def health():
             TIMEZONE,
 
         "version":
-            "CARDS-SPLIT-V1"
+            "MATCH-CONTEXT-V1"
     })
 
 
@@ -1827,6 +1863,12 @@ def analysis(fixture_id):
             away.get("id")
         )
 
+        match_context = (
+            build_match_context(
+                fixture
+            )
+        )
+
         samples = prepare_samples(
             league_id,
             home_id,
@@ -1850,10 +1892,6 @@ def analysis(fixture_id):
             samples["away_5"]
         )
 
-        # =============================================
-        # CRUZAMENTO 10
-        # =============================================
-
         home_cross_10 = (
             build_cross_lines(
                 home_10,
@@ -1867,10 +1905,6 @@ def analysis(fixture_id):
                 home_10
             )
         )
-
-        # =============================================
-        # CRUZAMENTO 5
-        # =============================================
 
         home_cross_5 = (
             build_cross_lines(
@@ -1886,10 +1920,6 @@ def analysis(fixture_id):
             )
         )
 
-        # =============================================
-        # TENDÊNCIAS
-        # =============================================
-
         home_trends = (
             build_trend_lines(
                 home_cross_5,
@@ -1903,10 +1933,6 @@ def analysis(fixture_id):
                 away_cross_10
             )
         )
-
-        # =============================================
-        # ABA SELECIONADA
-        # =============================================
 
         if sample == 5:
 
@@ -1973,10 +1999,13 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "CARDS-SPLIT-V1",
+                "MATCH-CONTEXT-V1",
 
             "sample_size":
                 sample,
+
+            "match_info":
+                match_context,
 
             "home": {
                 "id":
@@ -2079,10 +2108,6 @@ def analysis(fixture_id):
                         "conceded_coverage"
                     ]
             },
-
-            # =============================================
-            # ESTATÍSTICAS
-            # =============================================
 
             "stats": [
                 {
@@ -2191,10 +2216,6 @@ def analysis(fixture_id):
                 }
             ],
 
-            # =============================================
-            # LINHAS
-            # =============================================
-
             "lines": {
                 "home":
                     build_lines(
@@ -2206,10 +2227,6 @@ def analysis(fixture_id):
                         away_data
                     )
             },
-
-            # =============================================
-            # LINHAS DOS ADVERSÁRIOS
-            # =============================================
 
             "conceded_lines": {
                 "home":
@@ -2223,10 +2240,6 @@ def analysis(fixture_id):
                     )
             },
 
-            # =============================================
-            # CRUZAMENTO SELECIONADO
-            # =============================================
-
             "cross": {
                 "home":
                     home_cross,
@@ -2234,10 +2247,6 @@ def analysis(fixture_id):
                 "away":
                     away_cross
             },
-
-            # =============================================
-            # 5 E 10
-            # =============================================
 
             "cross_samples": {
                 "last_5": {
@@ -2257,10 +2266,6 @@ def analysis(fixture_id):
                 }
             },
 
-            # =============================================
-            # TENDÊNCIAS
-            # =============================================
-
             "trends": {
                 "home":
                     home_trends,
@@ -2277,10 +2282,13 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "CARDS-SPLIT-V1",
+                "MATCH-CONTEXT-V1",
 
             "sample_size":
                 sample,
+
+            "match_info":
+                {},
 
             "stats":
                 [],
@@ -2375,6 +2383,12 @@ def lines(fixture_id):
 
         away_id = (
             away.get("id")
+        )
+
+        match_context = (
+            build_match_context(
+                fixture
+            )
         )
 
         samples = prepare_samples(
@@ -2491,7 +2505,10 @@ def lines(fixture_id):
                 sample,
 
             "version":
-                "CARDS-SPLIT-V1",
+                "MATCH-CONTEXT-V1",
+
+            "match_info":
+                match_context,
 
             "home": {
                 "name":
