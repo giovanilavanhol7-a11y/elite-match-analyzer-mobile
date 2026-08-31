@@ -24,6 +24,7 @@ function initials(name) {
 
 function showNotice(text) {
   notice.textContent = text;
+
   notice.classList.toggle(
     "hidden",
     !text
@@ -77,7 +78,13 @@ function formatRate(value) {
     return "Sem dados";
   }
 
-  return `${Number(value).toFixed(1)}%`;
+  const num = Number(value);
+
+  if (Number.isNaN(num)) {
+    return "Sem dados";
+  }
+
+  return `${num.toFixed(1)}%`;
 }
 
 
@@ -123,6 +130,7 @@ function renderFixtures(items) {
         Nenhuma partida encontrada para hoje.
       </div>
     `;
+
     return;
   }
 
@@ -132,6 +140,7 @@ function renderFixtures(items) {
         class="fixture"
         data-id="${f.id}"
       >
+
         <div class="fixture-top">
 
           <span class="fixture-league">
@@ -144,29 +153,40 @@ function renderFixtures(items) {
 
         </div>
 
+
         <div class="fixture-teams">
 
           <div class="mini-team">
+
             ${teamIcon(f.home)}
+
             <strong>
               ${f.home.name}
             </strong>
+
           </div>
+
 
           <span class="fixture-vs">
             x
           </span>
 
+
           <div class="mini-team">
+
             <strong>
               ${f.away.name}
             </strong>
+
             ${teamIcon(f.away)}
+
           </div>
 
         </div>
+
       </button>
     `).join("");
+
 
   document
     .querySelectorAll(".fixture")
@@ -183,13 +203,20 @@ function renderFixtures(items) {
                 btn.dataset.id
             );
 
-          openAnalysis(item);
+          if (item) {
+            openAnalysis(item);
+          }
+
         }
       );
 
     });
 }
 
+
+/* ======================================================
+   CARREGAR PARTIDAS
+====================================================== */
 
 async function loadFixtures() {
   fixturesEl.innerHTML = `
@@ -205,11 +232,13 @@ async function loadFixtures() {
         "/api/health"
       );
 
+
     $("modeBadge").textContent =
       health.api_configured &&
       !health.demo_mode
         ? "DADOS REAIS"
         : "DEMO";
+
 
     $("modeBadge").style.color =
       health.api_configured &&
@@ -244,6 +273,7 @@ async function loadFixtures() {
         new Date()
       );
 
+
   } catch (error) {
 
     fixturesEl.innerHTML = `
@@ -251,6 +281,7 @@ async function loadFixtures() {
         ${error.message}
       </div>
     `;
+
   }
 }
 
@@ -263,11 +294,14 @@ function setBigTeam(prefix, team) {
   $(`${prefix}Name`).textContent =
     team.name;
 
+
   const img =
     $(`${prefix}Logo`);
 
+
   const fallback =
     $(`${prefix}Fallback`);
+
 
   if (team.logo) {
 
@@ -293,6 +327,7 @@ function setBigTeam(prefix, team) {
 
     fallback.textContent =
       initials(team.name);
+
   }
 }
 
@@ -300,33 +335,47 @@ function setBigTeam(prefix, team) {
 async function openAnalysis(fixture) {
   currentFixture = fixture;
 
+
   fixturesEl.classList.add(
     "hidden"
   );
 
-  document
-    .querySelector(".intro")
-    .classList.add(
-      "hidden"
+
+  const intro =
+    document.querySelector(
+      ".intro"
     );
 
+
+  if (intro) {
+    intro.classList.add(
+      "hidden"
+    );
+  }
+
+
   showNotice("");
+
 
   analysisPanel.classList.remove(
     "hidden"
   );
+
 
   setBigTeam(
     "home",
     fixture.home
   );
 
+
   setBigTeam(
     "away",
     fixture.away
   );
 
+
   await loadAnalysis();
+
 
   window.scrollTo({
     top: 0,
@@ -347,13 +396,16 @@ function lineColor(rate) {
     return "var(--muted)";
   }
 
+
   if (rate >= 90) {
     return "var(--green)";
   }
 
+
   if (rate >= 80) {
     return "var(--amber)";
   }
+
 
   return "var(--muted)";
 }
@@ -370,9 +422,11 @@ function lineThreshold(label) {
         /\+?(\d+(?:[.,]\d+)?)/
       );
 
+
   if (!match) {
     return 0;
   }
+
 
   return Number(
     match[1].replace(
@@ -390,7 +444,7 @@ function lineThreshold(label) {
    20% = lado mais fraco
    10% = quantidade de jogos
 
-   NÃO É PROBABILIDADE DE ACERTO.
+   NÃO É PROBABILIDADE.
 ====================================================== */
 
 function crossIndex(item) {
@@ -399,10 +453,12 @@ function crossIndex(item) {
       item.produced?.rate
     );
 
+
   const concededRate =
     Number(
       item.opponent_conceded?.rate
     );
+
 
   if (
     Number.isNaN(producedRate) ||
@@ -411,11 +467,13 @@ function crossIndex(item) {
     return null;
   }
 
+
   const averageRate =
     (
       producedRate +
       concededRate
     ) / 2;
+
 
   const weakerRate =
     Math.min(
@@ -423,21 +481,25 @@ function crossIndex(item) {
       concededRate
     );
 
+
   const producedGames =
     Number(
       item.produced?.games || 0
     );
+
 
   const concededGames =
     Number(
       item.opponent_conceded?.games || 0
     );
 
+
   const usableGames =
     Math.min(
       producedGames,
       concededGames
     );
+
 
   const sampleScore =
     clamp(
@@ -446,12 +508,14 @@ function crossIndex(item) {
       1
     );
 
+
   const score =
     (
       (averageRate / 100) * 0.70 +
       (weakerRate / 100) * 0.20 +
       sampleScore * 0.10
     ) * 10;
+
 
   return Number(
     score.toFixed(1)
@@ -468,17 +532,21 @@ function indexLabel(score) {
     return "Sem dados";
   }
 
+
   if (score >= 9) {
     return "Histórico muito forte";
   }
+
 
   if (score >= 8) {
     return "Histórico forte";
   }
 
+
   if (score >= 7) {
     return "Histórico moderado";
   }
+
 
   return "Histórico fraco";
 }
@@ -486,6 +554,12 @@ function indexLabel(score) {
 
 /* ======================================================
    ESCOLHER UMA LINHA POR MÉTRICA
+
+   REGRA NOVA:
+
+   - PRODUZ >= 75%
+   - CONCEDE >= 75%
+   - FORÇA COMBINADA >= 80%
 ====================================================== */
 
 function chooseBestCrossLines(
@@ -494,33 +568,63 @@ function chooseBestCrossLines(
 ) {
   const groups = {};
 
+
   (items || []).forEach(item => {
 
     const producedRate =
-      item.produced?.rate;
+      Number(
+        item.produced?.rate
+      );
+
 
     const concededRate =
-      item.opponent_conceded?.rate;
+      Number(
+        item.opponent_conceded?.rate
+      );
+
+
+    /*
+      Precisa existir informação
+      dos dois lados.
+    */
 
     if (
-      producedRate === null ||
-      producedRate === undefined ||
-      concededRate === null ||
-      concededRate === undefined
+      Number.isNaN(producedRate) ||
+      Number.isNaN(concededRate)
     ) {
       return;
     }
 
+
     /*
-      Só consideramos oportunidade
-      quando a média das duas tendências
-      atingir pelo menos 80%.
+      NOVO FILTRO:
+
+      O time precisa produzir
+      a linha em pelo menos 75%.
+
+      O adversário também precisa
+      conceder a linha em pelo
+      menos 75%.
+    */
+
+    if (
+      producedRate < 75 ||
+      concededRate < 75
+    ) {
+      return;
+    }
+
+
+    /*
+      Força combinada mínima:
+      80%.
     */
 
     const crossRate =
       Number(
         item.cross_rate
       );
+
 
     if (
       Number.isNaN(crossRate) ||
@@ -529,9 +633,11 @@ function chooseBestCrossLines(
       return;
     }
 
+
     const metric =
       item.metric ||
       item.label;
+
 
     const candidate = {
       ...item,
@@ -548,18 +654,27 @@ function chooseBestCrossLines(
         crossIndex(item)
     };
 
+
     const current =
       groups[metric];
 
+
+    /*
+      Primeira linha encontrada
+      da métrica.
+    */
+
     if (!current) {
+
       groups[metric] =
         candidate;
 
       return;
     }
 
+
     /*
-      Primeiro:
+      1º critério:
       maior índice combinado.
     */
 
@@ -567,14 +682,16 @@ function chooseBestCrossLines(
       candidate.index >
       current.index
     ) {
+
       groups[metric] =
         candidate;
 
       return;
     }
 
+
     /*
-      Se índice empatar:
+      2º critério:
       maior força combinada.
     */
 
@@ -584,15 +701,18 @@ function chooseBestCrossLines(
       candidate.cross_rate >
         current.cross_rate
     ) {
+
       groups[metric] =
         candidate;
 
       return;
     }
 
+
     /*
-      Se tudo empatar:
-      linha mais alta.
+      3º critério:
+      se tudo empatar,
+      escolhe a linha mais alta.
     */
 
     if (
@@ -603,11 +723,14 @@ function chooseBestCrossLines(
       candidate.threshold >
         current.threshold
     ) {
+
       groups[metric] =
         candidate;
+
     }
 
   });
+
 
   return Object.values(
     groups
@@ -616,13 +739,14 @@ function chooseBestCrossLines(
 
 
 /* ======================================================
-   MELHORES OPORTUNIDADES CRUZADAS
+   MELHORES OPORTUNIDADES
 ====================================================== */
 
 function getBestOpportunities(data) {
   const homeName =
     data.home?.name ||
     currentFixture.home.name;
+
 
   const awayName =
     data.away?.name ||
@@ -652,6 +776,11 @@ function getBestOpportunities(data) {
   opportunities.sort(
     (a, b) => {
 
+      /*
+        Primeiro:
+        maior índice.
+      */
+
       if (
         b.index !==
         a.index
@@ -661,6 +790,12 @@ function getBestOpportunities(data) {
           a.index
         );
       }
+
+
+      /*
+        Segundo:
+        maior força combinada.
+      */
 
       if (
         b.cross_rate !==
@@ -672,10 +807,17 @@ function getBestOpportunities(data) {
         );
       }
 
+
+      /*
+        Terceiro:
+        linha mais alta.
+      */
+
       return (
         b.threshold -
         a.threshold
       );
+
     }
   );
 
@@ -685,36 +827,45 @@ function getBestOpportunities(data) {
 
 
 /* ======================================================
-   MOSTRAR OPORTUNIDADES CRUZADAS
+   MOSTRAR MELHORES OPORTUNIDADES
 ====================================================== */
 
 function renderBestOpportunities(data) {
   let container =
     $("bestOpportunities");
 
+
   if (!container) {
 
     const statsCard =
       analysisPanel
-        .querySelectorAll(".card")[1];
+        .querySelectorAll(
+          ".card"
+        )[1];
+
 
     if (!statsCard) {
       return;
     }
+
 
     const box =
       document.createElement(
         "div"
       );
 
+
     box.className =
       "card";
+
 
     box.id =
       "bestOpportunitiesCard";
 
+
     box.style.marginTop =
       "16px";
+
 
     box.innerHTML = `
 
@@ -738,9 +889,10 @@ function renderBestOpportunities(data) {
           margin-bottom:16px;
         "
       >
-        O sistema cruza o que
-        a equipe produz com o que
-        o adversário concede.
+        Só entram linhas em que
+        a equipe produz pelo menos
+        75% e o adversário concede
+        pelo menos 75%.
       </p>
 
 
@@ -782,17 +934,23 @@ function renderBestOpportunities(data) {
 
 
   const opportunities =
-    getBestOpportunities(data);
+    getBestOpportunities(
+      data
+    );
 
 
   if (!opportunities.length) {
 
     container.innerHTML = `
+
       <div class="safe-box">
-        Nenhuma linha teve força
-        combinada suficiente neste
-        recorte.
+
+        Nenhuma linha passou
+        pelos filtros mínimos
+        deste recorte.
+
       </div>
+
     `;
 
     return;
@@ -802,6 +960,7 @@ function renderBestOpportunities(data) {
   const homeName =
     data.home?.name ||
     currentFixture.home.name;
+
 
   const awayName =
     data.away?.name ||
@@ -855,16 +1014,21 @@ function renderBestOpportunities(data) {
                       margin-bottom:4px;
                     "
                   >
+
                     ${index + 1}.
                     ${item.team}
+
                   </div>
+
 
                   <strong
                     style="
                       font-size:16px;
                     "
                   >
+
                     ${item.label}
+
                   </strong>
 
                 </div>
@@ -885,8 +1049,11 @@ function renderBestOpportunities(data) {
                       )};
                     "
                   >
+
                     ${item.index}/10
+
                   </strong>
+
 
                   <small
                     style="
@@ -895,9 +1062,11 @@ function renderBestOpportunities(data) {
                       margin-top:3px;
                     "
                   >
+
                     ${indexLabel(
                       item.index
                     )}
+
                   </small>
 
                 </div>
@@ -922,14 +1091,20 @@ function renderBestOpportunities(data) {
                     margin-bottom:5px;
                   "
                 >
+
                   ${item.team} produz
+
                 </div>
 
+
                 <strong>
+
                   ${formatRate(
                     produced.rate
                   )}
+
                 </strong>
+
 
                 <span
                   style="
@@ -937,10 +1112,13 @@ function renderBestOpportunities(data) {
                     margin-left:5px;
                   "
                 >
+
                   • ${produced.hits}
                   de ${produced.games}
                   jogos
+
                 </span>
+
 
                 ${
                   produced.average !==
@@ -949,6 +1127,7 @@ function renderBestOpportunities(data) {
                   undefined
 
                     ? `
+
                       <div
                         style="
                           margin-top:5px;
@@ -956,11 +1135,14 @@ function renderBestOpportunities(data) {
                           opacity:.75;
                         "
                       >
+
                         Média:
                         ${Number(
                           produced.average
                         ).toFixed(2)}
+
                       </div>
+
                     `
 
                     : ""
@@ -986,14 +1168,20 @@ function renderBestOpportunities(data) {
                     margin-bottom:5px;
                   "
                 >
+
                   ${opponent} concede
+
                 </div>
 
+
                 <strong>
+
                   ${formatRate(
                     conceded.rate
                   )}
+
                 </strong>
+
 
                 <span
                   style="
@@ -1001,10 +1189,13 @@ function renderBestOpportunities(data) {
                     margin-left:5px;
                   "
                 >
+
                   • ${conceded.hits}
                   de ${conceded.games}
                   jogos
+
                 </span>
+
 
                 ${
                   conceded.average !==
@@ -1013,6 +1204,7 @@ function renderBestOpportunities(data) {
                   undefined
 
                     ? `
+
                       <div
                         style="
                           margin-top:5px;
@@ -1020,11 +1212,14 @@ function renderBestOpportunities(data) {
                           opacity:.75;
                         "
                       >
+
                         Média cedida:
                         ${Number(
                           conceded.average
                         ).toFixed(2)}
+
                       </div>
+
                     `
 
                     : ""
@@ -1053,8 +1248,11 @@ function renderBestOpportunities(data) {
                     opacity:.75;
                   "
                 >
+
                   Força combinada
+
                 </small>
+
 
                 <strong
                   style="
@@ -1064,9 +1262,11 @@ function renderBestOpportunities(data) {
                     )};
                   "
                 >
+
                   ${formatRate(
                     item.cross_rate
                   )}
+
                 </strong>
 
               </div>
@@ -1074,6 +1274,7 @@ function renderBestOpportunities(data) {
             </div>
 
           `;
+
         }
       )
       .join("");
@@ -1094,7 +1295,9 @@ function renderTeamLines(
   ) {
 
     return `
+
       <div class="safe-box">
+
         <strong>
           ${teamName}
         </strong>
@@ -1102,12 +1305,16 @@ function renderTeamLines(
         <p>
           Sem dados suficientes.
         </p>
+
       </div>
+
     `;
+
   }
 
 
   return `
+
     <div
       class="safe-box"
       style="
@@ -1136,6 +1343,7 @@ function renderTeamLines(
           ) {
 
             return `
+
               <div
                 style="
                   padding:10px 0;
@@ -1170,11 +1378,14 @@ function renderTeamLines(
                 </div>
 
               </div>
+
             `;
+
           }
 
 
           return `
+
             <div
               style="
                 padding:10px 0;
@@ -1203,6 +1414,7 @@ function renderTeamLines(
                   ${line.label}
                 </span>
 
+
                 <strong
                   style="
                     color:
@@ -1211,7 +1423,9 @@ function renderTeamLines(
                     )}
                   "
                 >
+
                   ${line.rate}%
+
                 </strong>
 
               </div>
@@ -1224,11 +1438,14 @@ function renderTeamLines(
                   opacity:.75;
                 "
               >
+
                 Bateu ${line.hits}
                 de ${line.games} jogos
+
               </small>
 
             </div>
+
           `;
 
         }).join("")}
@@ -1236,6 +1453,7 @@ function renderTeamLines(
       </div>
 
     </div>
+
   `;
 }
 
@@ -1263,10 +1481,14 @@ function renderLines(data) {
 
     const cards =
       analysisPanel
-        .querySelectorAll(".card");
+        .querySelectorAll(
+          ".card"
+        );
+
 
     const automaticSection =
       cards[cards.length - 1];
+
 
     if (!automaticSection) {
       return;
@@ -1284,8 +1506,10 @@ function renderLines(data) {
         <span
           id="linesSampleInfo"
         >
+
           ${homeUsed} casa •
           ${awayUsed} fora
+
         </span>
 
       </div>
@@ -1298,9 +1522,11 @@ function renderLines(data) {
           margin-bottom:16px;
         "
       >
+
         Histórico individual de
         cada equipe no recorte
         casa/fora.
+
       </p>
 
 
@@ -1326,6 +1552,7 @@ function renderLines(data) {
         `${homeUsed} casa • ${awayUsed} fora`;
 
     }
+
   }
 
 
@@ -1345,6 +1572,7 @@ function renderLines(data) {
       homeLines
     )}
 
+
     ${renderTeamLines(
       data.away?.name ||
       currentFixture.away.name,
@@ -1362,9 +1590,11 @@ function renderLines(data) {
 async function loadAnalysis() {
 
   $("statsList").innerHTML = `
+
     <div class="loader">
       Calculando estatísticas...
     </div>
+
   `;
 
 
@@ -1416,9 +1646,11 @@ async function loadAnalysis() {
               )}
             </div>
 
+
             <div class="stat-label">
               ${s.label}
             </div>
+
 
             <div class="stat-value">
               ${formatStat(
@@ -1432,10 +1664,12 @@ async function loadAnalysis() {
         .join("") ||
 
       `
+
         <div class="empty">
           Sem estatísticas
           disponíveis.
         </div>
+
       `;
 
 
@@ -1452,10 +1686,13 @@ async function loadAnalysis() {
   } catch (error) {
 
     $("statsList").innerHTML = `
+
       <div class="empty error">
         ${error.message}
       </div>
+
     `;
+
   }
 }
 
@@ -1482,15 +1719,24 @@ $("backBtn")
 
       currentFixture = null;
 
+
       analysisPanel.classList.add(
         "hidden"
       );
 
-      document
-        .querySelector(".intro")
-        .classList.remove(
+
+      const intro =
+        document.querySelector(
+          ".intro"
+        );
+
+
+      if (intro) {
+        intro.classList.remove(
           "hidden"
         );
+      }
+
 
       fixturesEl.classList.remove(
         "hidden"
@@ -1531,10 +1777,9 @@ document
 
 
         if (currentFixture) {
-
           await loadAnalysis();
-
         }
+
       }
     );
 
