@@ -3,12 +3,29 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 import requests
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 app = Flask(__name__, static_folder="static")
+
+
+# =========================================================
+# CONFIGURAÇÕES
+# =========================================================
 
 API_KEY = os.getenv("PITCHAPI_KEY", "").strip()
 API_BASE = "https://api.pitchapi.dev"
 TIMEZONE = "America/Sao_Paulo"
+
+
+FIXTURES_CACHE = {
+    "date": None,
+    "created_at": 0,
+    "matches": []
+}
+
+FIXTURES_CACHE_SECONDS = 300
 
 
 # =========================================================
@@ -16,12 +33,17 @@ TIMEZONE = "America/Sao_Paulo"
 # =========================================================
 
 def api_get(path):
+
     if not API_KEY:
         raise RuntimeError(
             "PITCHAPI_KEY não configurada."
         )
 
-    url = API_BASE + "/" + path.lstrip("/")
+    url = (
+        API_BASE
+        + "/"
+        + path.lstrip("/")
+    )
 
     response = requests.get(
         url,
@@ -60,6 +82,7 @@ def api_get(path):
 # =========================================================
 
 def number(value):
+
     if value is None:
         return None
 
@@ -86,6 +109,7 @@ def number(value):
 
 
 def average(values):
+
     valid = [
         float(v)
         for v in values
@@ -102,10 +126,12 @@ def average(values):
 
 
 def match_time(value):
+
     if not value:
         return ""
 
     try:
+
         dt = datetime.fromisoformat(
             value.replace(
                 "Z",
@@ -126,10 +152,12 @@ def match_time(value):
 
 
 def match_date(value):
+
     if not value:
         return ""
 
     try:
+
         dt = datetime.fromisoformat(
             value.replace(
                 "Z",
@@ -150,10 +178,12 @@ def match_date(value):
 
 
 def local_match_day(value):
+
     if not value:
         return None
 
     try:
+
         dt = datetime.fromisoformat(
             value.replace(
                 "Z",
@@ -174,6 +204,7 @@ def local_match_day(value):
 
 
 def normalize_name(value):
+
     return (
         str(value)
         .strip()
@@ -184,6 +215,7 @@ def normalize_name(value):
 
 
 def clean_text(value):
+
     if value is None:
         return ""
 
@@ -195,6 +227,7 @@ def clean_text(value):
 # =========================================================
 
 def build_match_context(fixture):
+
     referee = clean_text(
         fixture.get("referee")
     )
@@ -245,13 +278,16 @@ def build_match_context(fixture):
 # =========================================================
 
 def get_h2h(fixture_id):
+
     try:
+
         data = api_get(
             f"v1/matches/"
             f"{fixture_id}/h2h"
         )
 
     except Exception:
+
         return {
             "available": False,
             "total_matches": 0,
@@ -265,6 +301,7 @@ def get_h2h(fixture_id):
         data,
         dict
     ):
+
         return {
             "available": False,
             "total_matches": 0,
@@ -380,7 +417,8 @@ def get_h2h(fixture_id):
     )
 
     return {
-        "available": True,
+        "available":
+            True,
 
         "home_team": {
             "id":
@@ -446,6 +484,7 @@ def get_h2h(fixture_id):
 # =========================================================
 
 def normalize_match(match):
+
     league = (
         match.get("league")
         or {}
@@ -462,60 +501,71 @@ def normalize_match(match):
     )
 
     return {
-        "id": match.get("id"),
+        "id":
+            match.get("id"),
 
-        "league": league.get(
-            "name",
-            "Competição"
-        ),
-
-        "league_id": league.get(
-            "id"
-        ),
-
-        "league_logo": league.get(
-            "image_url",
-            ""
-        ),
-
-        "time": match_time(
-            match.get("time_utc")
-        ),
-
-        "status": match.get(
-            "status",
-            ""
-        ),
-
-        "home": {
-            "id": home.get("id"),
-
-            "name": home.get(
+        "league":
+            league.get(
                 "name",
-                "Mandante"
+                "Competição"
             ),
 
-            "logo": home.get(
+        "league_id":
+            league.get("id"),
+
+        "league_logo":
+            league.get(
                 "image_url",
                 ""
-            )
+            ),
+
+        "time":
+            match_time(
+                match.get("time_utc")
+            ),
+
+        "status":
+            match.get(
+                "status",
+                ""
+            ),
+
+        "home": {
+            "id":
+                home.get("id"),
+
+            "name":
+                home.get(
+                    "name",
+                    "Mandante"
+                ),
+
+            "logo":
+                home.get(
+                    "image_url",
+                    ""
+                )
         },
 
         "away": {
-            "id": away.get("id"),
+            "id":
+                away.get("id"),
 
-            "name": away.get(
-                "name",
-                "Visitante"
-            ),
+            "name":
+                away.get(
+                    "name",
+                    "Visitante"
+                ),
 
-            "logo": away.get(
-                "image_url",
-                ""
-            )
+            "logo":
+                away.get(
+                    "image_url",
+                    ""
+                )
         },
 
-        "demo": False
+        "demo":
+            False
     }
 
 
@@ -524,7 +574,9 @@ def normalize_match(match):
 # =========================================================
 
 def get_stats(match_id):
+
     try:
+
         data = api_get(
             f"v1/matches/"
             f"{match_id}/stats"
@@ -567,27 +619,31 @@ def get_stats(match_id):
             ):
 
                 result.append({
-                    "key": str(
-                        item.get(
-                            "key",
-                            ""
+                    "key":
+                        str(
+                            item.get(
+                                "key",
+                                ""
+                            )
+                        ).strip().lower(),
+
+                    "title":
+                        str(
+                            item.get(
+                                "title",
+                                ""
+                            )
+                        ).strip().lower(),
+
+                    "home":
+                        number(
+                            item.get("home")
+                        ),
+
+                    "away":
+                        number(
+                            item.get("away")
                         )
-                    ).strip().lower(),
-
-                    "title": str(
-                        item.get(
-                            "title",
-                            ""
-                        )
-                    ).strip().lower(),
-
-                    "home": number(
-                        item.get("home")
-                    ),
-
-                    "away": number(
-                        item.get("away")
-                    )
                 })
 
     return result
@@ -598,6 +654,7 @@ def find_exact_stat(
     names,
     home_side
 ):
+
     wanted = {
         normalize_name(name)
         for name in names
@@ -615,7 +672,8 @@ def find_exact_stat(
 
         if (
             key in wanted
-            or title in wanted
+            or
+            title in wanted
         ):
 
             if home_side:
@@ -634,7 +692,9 @@ def shot_events(
     match_id,
     team_id
 ):
+
     try:
+
         data = api_get(
             f"v1/matches/"
             f"{match_id}/shots"
@@ -689,7 +749,9 @@ def sot_from_shots(
     match_id,
     team_id
 ):
+
     try:
+
         data = api_get(
             f"v1/matches/"
             f"{match_id}/shots"
@@ -763,7 +825,9 @@ def get_card_breakdown(
     match_id,
     team_id
 ):
+
     try:
+
         data = api_get(
             f"v1/matches/"
             f"{match_id}/events"
@@ -841,7 +905,9 @@ def recent_matches(
     limit,
     venue
 ):
+
     try:
+
         data = api_get(
             f"v1/leagues/"
             f"{league_id}/matches"
@@ -949,6 +1015,7 @@ def team_match_values(
     match,
     team_id
 ):
+
     match_id = match.get(
         "id"
     )
@@ -1102,6 +1169,7 @@ def opponent_id_from_match(
     match,
     team_id
 ):
+
     home = (
         match.get("home_team")
         or {}
@@ -1138,6 +1206,7 @@ def team_average(
     limit,
     venue
 ):
+
     matches = recent_matches(
         league_id,
         team_id,
@@ -1227,19 +1296,20 @@ def team_average(
         )
 
         history.append({
-            "match_id": match.get(
-                "id"
-            ),
+            "match_id":
+                match.get("id"),
 
-            "home": home.get(
-                "name",
-                ""
-            ),
+            "home":
+                home.get(
+                    "name",
+                    ""
+                ),
 
-            "away": away.get(
-                "name",
-                ""
-            ),
+            "away":
+                away.get(
+                    "name",
+                    ""
+                ),
 
             "produced":
                 own_row,
@@ -1256,17 +1326,19 @@ def team_average(
             venue,
 
         "averages": {
-            key: average(value)
+            key:
+                average(value)
             for key, value
             in produced.items()
         },
 
         "coverage": {
-            key: len([
-                x
-                for x in value
-                if x is not None
-            ])
+            key:
+                len([
+                    x
+                    for x in value
+                    if x is not None
+                ])
             for key, value
             in produced.items()
         },
@@ -1275,17 +1347,19 @@ def team_average(
             produced,
 
         "conceded_averages": {
-            key: average(value)
+            key:
+                average(value)
             for key, value
             in conceded.items()
         },
 
         "conceded_coverage": {
-            key: len([
-                x
-                for x in value
-                if x is not None
-            ])
+            key:
+                len([
+                    x
+                    for x in value
+                    if x is not None
+                ])
             for key, value
             in conceded.items()
         },
@@ -1306,8 +1380,10 @@ def slice_team_data(
     team_data,
     limit
 ):
+
     produced = {
-        key: value[:limit]
+        key:
+            value[:limit]
         for key, value
         in team_data[
             "values"
@@ -1315,7 +1391,8 @@ def slice_team_data(
     }
 
     conceded = {
-        key: value[:limit]
+        key:
+            value[:limit]
         for key, value
         in team_data[
             "conceded_values"
@@ -1338,17 +1415,19 @@ def slice_team_data(
             ),
 
         "averages": {
-            key: average(value)
+            key:
+                average(value)
             for key, value
             in produced.items()
         },
 
         "coverage": {
-            key: len([
-                x
-                for x in value
-                if x is not None
-            ])
+            key:
+                len([
+                    x
+                    for x in value
+                    if x is not None
+                ])
             for key, value
             in produced.items()
         },
@@ -1357,17 +1436,19 @@ def slice_team_data(
             produced,
 
         "conceded_averages": {
-            key: average(value)
+            key:
+                average(value)
             for key, value
             in conceded.items()
         },
 
         "conceded_coverage": {
-            key: len([
-                x
-                for x in value
-                if x is not None
-            ])
+            key:
+                len([
+                    x
+                    for x in value
+                    if x is not None
+                ])
             for key, value
             in conceded.items()
         },
@@ -1388,6 +1469,7 @@ def line_result(
     values,
     threshold
 ):
+
     valid = [
         float(v)
         for v in values
@@ -1531,6 +1613,7 @@ LINE_DEFINITIONS = [
 def build_lines_from_values(
     values
 ):
+
     result = []
 
     for (
@@ -1561,6 +1644,7 @@ def build_lines_from_values(
 def build_lines(
     team_data
 ):
+
     return build_lines_from_values(
         team_data[
             "values"
@@ -1571,6 +1655,7 @@ def build_lines(
 def build_conceded_lines(
     team_data
 ):
+
     return build_lines_from_values(
         team_data[
             "conceded_values"
@@ -1586,6 +1671,7 @@ def build_cross_lines(
     produced_team,
     opponent_team
 ):
+
     result = []
 
     produced_values = (
@@ -1756,20 +1842,22 @@ def build_cross_lines(
 
 
 # =========================================================
-# TENDÊNCIA 5 × 10
+# TENDÊNCIA 5 X 10
 # =========================================================
 
 def build_trend_lines(
     cross_5,
     cross_10
 ):
+
     result = []
 
     map_5 = {
         (
             item.get("metric"),
             item.get("line")
-        ): item
+        ):
+            item
         for item in cross_5
     }
 
@@ -1777,7 +1865,8 @@ def build_trend_lines(
         (
             item.get("metric"),
             item.get("line")
-        ): item
+        ):
+            item
         for item in cross_10
     }
 
@@ -1836,7 +1925,8 @@ def build_trend_lines(
         ):
 
             difference = round(
-                rate_5 - rate_10,
+                rate_5
+                - rate_10,
                 1
             )
 
@@ -1892,6 +1982,7 @@ def build_trend_lines(
 
 @app.get("/")
 def index():
+
     return send_from_directory(
         "static",
         "index.html"
@@ -1904,6 +1995,7 @@ def index():
 
 @app.get("/api/health")
 def health():
+
     return jsonify({
         "ok":
             True,
@@ -1921,13 +2013,201 @@ def health():
             TIMEZONE,
 
         "version":
-            "H2H-V1"
+            "TODAY-FIX-V2"
     })
 
 
 # =========================================================
 # PARTIDAS DE HOJE
 # =========================================================
+
+def match_is_today_brazil(
+    match,
+    today
+):
+
+    time_utc = match.get(
+        "time_utc"
+    )
+
+    if time_utc:
+
+        local_day = local_match_day(
+            time_utc
+        )
+
+        if local_day:
+            return local_day == today
+
+    raw_date = clean_text(
+        match.get("date")
+    )
+
+    if raw_date:
+
+        return (
+            raw_date[:10]
+            == today
+        )
+
+    return False
+
+
+def league_matches_for_today(
+    league,
+    today
+):
+
+    league_id = (
+        league.get("id")
+    )
+
+    if not league_id:
+        return []
+
+    try:
+
+        data = api_get(
+            f"v1/leagues/"
+            f"{league_id}/matches"
+        )
+
+    except Exception:
+        return []
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        return []
+
+    matches = (
+        data.get("matches")
+        or []
+    )
+
+    result = []
+
+    for match in matches:
+
+        if not match_is_today_brazil(
+            match,
+            today
+        ):
+            continue
+
+        item = dict(match)
+
+        existing_league = (
+            item.get("league")
+            or {}
+        )
+
+        if not existing_league:
+
+            item["league"] = {
+                "id":
+                    league.get("id"),
+
+                "name":
+                    league.get(
+                        "name",
+                        "Competição"
+                    ),
+
+                "image_url":
+                    league.get(
+                        "image_url",
+                        ""
+                    )
+            }
+
+        result.append(
+            item
+        )
+
+    return result
+
+
+def fixtures_from_all_leagues(
+    today
+):
+
+    try:
+
+        data = api_get(
+            "v1/leagues"
+        )
+
+    except Exception:
+        return []
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        return []
+
+    leagues = (
+        data.get("leagues")
+        or []
+    )
+
+    if not leagues:
+        return []
+
+    matches = []
+    seen_ids = set()
+
+    with ThreadPoolExecutor(
+        max_workers=6
+    ) as executor:
+
+        futures = {
+            executor.submit(
+                league_matches_for_today,
+                league,
+                today
+            ):
+                league
+            for league in leagues
+        }
+
+        for future in as_completed(
+            futures
+        ):
+
+            try:
+
+                league_matches = (
+                    future.result()
+                )
+
+            except Exception:
+                continue
+
+            for match in league_matches:
+
+                match_id = (
+                    match.get("id")
+                )
+
+                if not match_id:
+                    continue
+
+                if match_id in seen_ids:
+                    continue
+
+                seen_ids.add(
+                    match_id
+                )
+
+                matches.append(
+                    match
+                )
+
+    return matches
+
 
 @app.get("/api/fixtures/today")
 def fixtures_today():
@@ -1942,31 +2222,85 @@ def fixtures_today():
             "%Y-%m-%d"
         )
 
-        tomorrow = (
-            now_local
-            + timedelta(days=1)
-        ).strftime(
-            "%Y-%m-%d"
-        )
+        now_timestamp = time.time()
 
-        dates_to_check = [
-            today,
-            tomorrow
-        ]
+        # =================================================
+        # CACHE
+        # =================================================
+
+        if (
+            FIXTURES_CACHE[
+                "date"
+            ] == today
+            and
+            (
+                now_timestamp
+                -
+                FIXTURES_CACHE[
+                    "created_at"
+                ]
+                <
+                FIXTURES_CACHE_SECONDS
+            )
+        ):
+
+            return jsonify({
+                "mode":
+                    "live",
+
+                "message":
+                    "",
+
+                "date":
+                    today,
+
+                "timezone":
+                    TIMEZONE,
+
+                "source":
+                    "cache",
+
+                "fixtures":
+                    FIXTURES_CACHE[
+                        "matches"
+                    ]
+            })
+
+        # =================================================
+        # BUSCA NORMAL POR DATA
+        # =================================================
 
         matches = []
         seen_ids = set()
+
+        dates_to_check = [
+            (
+                now_local
+                - timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            ),
+
+            today,
+
+            (
+                now_local
+                + timedelta(days=1)
+            ).strftime(
+                "%Y-%m-%d"
+            )
+        ]
 
         for date_value in dates_to_check:
 
             try:
 
                 data = api_get(
-                    f"v1/date/{date_value}"
+                    f"v1/date/"
+                    f"{date_value}"
                 )
 
             except Exception:
-
                 continue
 
             if not isinstance(
@@ -1982,6 +2316,12 @@ def fixtures_today():
 
             for match in api_matches:
 
+                if not match_is_today_brazil(
+                    match,
+                    today
+                ):
+                    continue
+
                 match_id = (
                     match.get("id")
                 )
@@ -1992,42 +2332,6 @@ def fixtures_today():
                 if match_id in seen_ids:
                     continue
 
-                time_utc = (
-                    match.get(
-                        "time_utc"
-                    )
-                )
-
-                local_day = (
-                    local_match_day(
-                        time_utc
-                    )
-                )
-
-                if local_day is not None:
-
-                    if local_day != today:
-                        continue
-
-                else:
-
-                    raw_date = clean_text(
-                        match.get("date")
-                    )
-
-                    if raw_date:
-
-                        raw_date = (
-                            raw_date[:10]
-                        )
-
-                        if raw_date != today:
-                            continue
-
-                    else:
-
-                        continue
-
                 seen_ids.add(
                     match_id
                 )
@@ -2036,26 +2340,49 @@ def fixtures_today():
                     match
                 )
 
-        def fixture_sort_key(match):
+        # =================================================
+        # BUSCA PELAS LIGAS
+        # =================================================
 
-            time_utc = (
-                match.get(
-                    "time_utc"
-                )
+        league_matches = (
+            fixtures_from_all_leagues(
+                today
+            )
+        )
+
+        for match in league_matches:
+
+            match_id = (
+                match.get("id")
             )
 
-            if not time_utc:
-                return (
-                    "99:99",
-                    str(
-                        match.get("id")
-                        or ""
-                    )
-                )
+            if not match_id:
+                continue
+
+            if match_id in seen_ids:
+                continue
+
+            seen_ids.add(
+                match_id
+            )
+
+            matches.append(
+                match
+            )
+
+        # =================================================
+        # ORDENAÇÃO
+        # =================================================
+
+        def fixture_sort_key(
+            match
+        ):
 
             return (
                 match_time(
-                    time_utc
+                    match.get(
+                        "time_utc"
+                    )
                 )
                 or "99:99",
 
@@ -2068,6 +2395,29 @@ def fixtures_today():
         matches.sort(
             key=fixture_sort_key
         )
+
+        normalized = [
+            normalize_match(
+                match
+            )
+            for match in matches
+        ]
+
+        # =================================================
+        # CACHE
+        # =================================================
+
+        FIXTURES_CACHE[
+            "date"
+        ] = today
+
+        FIXTURES_CACHE[
+            "created_at"
+        ] = now_timestamp
+
+        FIXTURES_CACHE[
+            "matches"
+        ] = normalized
 
         return jsonify({
             "mode":
@@ -2082,13 +2432,11 @@ def fixtures_today():
             "timezone":
                 TIMEZONE,
 
-            "fixtures": [
-                normalize_match(
-                    match
-                )
-                for match
-                in matches
-            ]
+            "source":
+                "date+leagues",
+
+            "fixtures":
+                normalized
         })
 
     except Exception as error:
@@ -2176,14 +2524,12 @@ def analysis(fixture_id):
         )
 
     except Exception:
-
         sample = 10
 
     if sample not in (
         5,
         10
     ):
-
         sample = 10
 
     try:
@@ -2347,7 +2693,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "H2H-V1",
+                "TODAY-FIX-V2",
 
             "sample_size":
                 sample,
@@ -2633,7 +2979,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "H2H-V1",
+                "TODAY-FIX-V2",
 
             "sample_size":
                 sample,
@@ -2703,14 +3049,12 @@ def lines(fixture_id):
         )
 
     except Exception:
-
         sample = 10
 
     if sample not in (
         5,
         10
     ):
-
         sample = 10
 
     try:
@@ -2858,7 +3202,7 @@ def lines(fixture_id):
                 sample,
 
             "version":
-                "H2H-V1",
+                "TODAY-FIX-V2",
 
             "match_info":
                 match_context,
@@ -3021,7 +3365,8 @@ def debug_dates():
             try:
 
                 data = api_get(
-                    f"v1/date/{date_value}"
+                    f"v1/date/"
+                    f"{date_value}"
                 )
 
                 api_matches = []
@@ -3062,6 +3407,13 @@ def debug_dates():
                         )
                     )
 
+                    league = (
+                        match.get(
+                            "league"
+                        )
+                        or {}
+                    )
+
                     matches.append({
                         "id":
                             match.get(
@@ -3069,12 +3421,7 @@ def debug_dates():
                             ),
 
                         "league":
-                            (
-                                match.get(
-                                    "league"
-                                )
-                                or {}
-                            ).get(
+                            league.get(
                                 "name"
                             ),
 
@@ -3121,63 +3468,4 @@ def debug_dates():
                         ),
 
                     "matches":
-                        matches
-                }
-
-            except Exception as error:
-
-                result[
-                    date_value
-                ] = {
-                    "total":
-                        0,
-
-                    "matches":
-                        [],
-
-                    "error":
-                        str(error)
-                }
-
-        return jsonify({
-            "ok":
-                True,
-
-            "timezone":
-                TIMEZONE,
-
-            "agora_brasilia":
-                now_local.isoformat(),
-
-            "datas":
-                result
-        })
-
-    except Exception as error:
-
-        return jsonify({
-            "ok":
-                False,
-
-            "error":
-                str(error)
-        }), 500
-
-
-# =========================================================
-# START
-# =========================================================
-
-if __name__ == "__main__":
-
-    port = int(
-        os.getenv(
-            "PORT",
-            "5000"
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+                       
