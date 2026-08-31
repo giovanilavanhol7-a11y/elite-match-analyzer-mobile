@@ -1195,7 +1195,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "TODAY-FIX-V4"
+        "version": "TODAY-FIX-V5"
     })
 
 
@@ -1296,7 +1296,7 @@ def league_matches_for_season(
         data = api_get(
             f"v1/leagues/"
             f"{league_id}/matches"
-            f"?season={season_param}"
+            f"?season={season_param}&status=all"
         )
 
     except Exception:
@@ -1462,7 +1462,7 @@ def fixtures_today():
         for date_value in dates_to_check:
             try:
                 data = api_get(
-                    f"v1/date/{date_value}"
+                    f"v1/date/{date_value}?status=all"
                 )
             except Exception:
                 continue
@@ -1694,7 +1694,7 @@ def build_analysis_payload(
 
     return {
         "source": "PITCHAPI",
-        "version": "TODAY-FIX-V4",
+        "version": "TODAY-FIX-V5",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -1859,7 +1859,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI",
-            "version": "TODAY-FIX-V4",
+            "version": "TODAY-FIX-V5",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
@@ -1984,7 +1984,7 @@ def debug_dates():
         for date_value in dates_to_check:
             try:
                 data = api_get(
-                    f"v1/date/{date_value}"
+                    f"v1/date/{date_value}?status=all"
                 )
 
                 if isinstance(data, dict):
