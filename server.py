@@ -1563,191 +1563,543 @@ def external_fixture_values(fixture, team_id):
     return {"goals":goals,"corners":corners,"shots":shots,"sot":sot,"yellow_cards":yellow,"red_cards":red,"cards":cards,"fouls":fouls}
 
 
+def external_id_equal(a, b):
+    if a is None or b is None:
+        return False
+    return str(a).strip() == str(b).strip()
+
+
+def external_fixture_timestamp(fixture):
+    value = fixture.get("kickoff_ts")
+    if value is not None:
+        try:
+            return int(value)
+        except Exception:
+            pass
+
+    return parse_utc_timestamp(
+        fixture.get("kickoff_utc")
+    )
+
+
 def external_opponent_id(fixture, team_id):
-    teams = fixture.get("teams") or {}; h, a = teams.get("home") or {}, teams.get("away") or {}
-    if h.get("id") == team_id: return a.get("id")
-    if a.get("id") == team_id: return h.get("id")
+    teams = fixture.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+
+    if external_id_equal(home.get("id"), team_id):
+        return away.get("id")
+
+    if external_id_equal(away.get("id"), team_id):
+        return home.get("id")
+
     return None
 
 
-def external_team_average(team_id, current_external_id, limit, venue, season_start_ts, current_kickoff_ts):
-    keys = ["goals","corners","shots","sot","yellow_cards","red_cards","cards","fouls"]
-    payload = football_data_get_cached(f"teams/{team_id}/fixtures", params={
-        "status":"finished", "start_time":season_start_ts, "end_time":current_kickoff_ts,
-        "include":"stats", "per_page":50, "lang":"pt"
-    })
-    fixtures = payload.get("data") or [] if isinstance(payload, dict) else []
-    selected=[]; seen=set()
-    for fixture in fixtures:
-        fid=fixture.get("id"); teams=fixture.get("teams") or {}; h=teams.get("home") or {}; a=teams.get("away") or {}
-        if not fid or fid == current_external_id or fid in seen: continue
-        if str(fixture.get("status") or "").lower() != "finished": continue
-        if venue == "home" and h.get("id") != team_id: continue
-        if venue == "away" and a.get("id") != team_id: continue
-        seen.add(fid); selected.append(fixture)
-        if len(selected) >= limit: break
-    produced={k:[] for k in keys}; conceded={k:[] for k in keys}; history=[]
-    for fixture in selected:
-        own=external_fixture_values(fixture, team_id); oid=external_opponent_id(fixture, team_id)
-        opp=external_fixture_values(fixture, oid) if oid else {k:None for k in keys}
-        for k in keys: produced[k].append(own.get(k)); conceded[k].append(opp.get(k))
-        teams=fixture.get("teams") or {}; h=teams.get("home") or {}; a=teams.get("away") or {}
-        history.append({"match_id":fixture.get("id"),"home":h.get("name", ""),"away":a.get("name", ""),"produced":own,"conceded":opp})
+def external_fixture_values(fixture, team_id):
+    teams = fixture.get("teams") or {}
+    home = teams.get("home") or {}
+    away = teams.get("away") or {}
+
+    if external_id_equal(home.get("id"), team_id):
+        side = "home"
+    elif external_id_equal(away.get("id"), team_id):
+        side = "away"
+    else:
+        side = None
+
+    keys = (
+        "goals",
+        "corners",
+        "shots",
+        "sot",
+        "yellow_cards",
+        "red_cards",
+        "cards",
+        "fouls"
+    )
+
+    if side is None:
+        return {key: None for key in keys}
+
+    goals = external_side_value(
+        fixture.get("goals"),
+        side
+    )
+
+    corners = external_side_value(
+        fixture.get("corners"),
+        side
+    )
+
+    side_cards = (
+        (fixture.get("cards") or {}).get(side)
+        or {}
+    )
+
+    yellow = number(side_cards.get("yellow"))
+    red = number(side_cards.get("red"))
+
+    cards = (
+        None
+        if yellow is None and red is None
+        else (yellow or 0) + (red or 0)
+    )
+
+    stats = (
+        fixture.get("statistics")
+        or fixture.get("stats")
+        or {}
+    )
+
+    # Alguns retornos colocam os números dentro de
+    # data.statistics. Aceitamos os dois formatos.
+    if (
+        isinstance(stats, dict)
+        and isinstance(stats.get("statistics"), dict)
+    ):
+        stats = stats["statistics"]
+
+    sot = external_side_value(
+        stats.get("shots_on_target"),
+        side
+    )
+
+    # Finalizações só são preenchidas quando existir
+    # um campo explícito de total. Não usamos
+    # SOT + shots_off_target porque isso pode excluir
+    # chutes bloqueados e produzir um total incorreto.
+    shots = None
+
+    for key in (
+        "shots",
+        "total_shots",
+        "shots_total",
+        "total_attempts",
+        "attempts"
+    ):
+        shots = external_side_value(
+            stats.get(key),
+            side
+        )
+        if shots is not None:
+            break
+
+    fouls = None
+
+    for key in (
+        "fouls",
+        "fouls_committed",
+        "total_fouls"
+    ):
+        fouls = external_side_value(
+            stats.get(key),
+            side
+        )
+        if fouls is not None:
+            break
+
     return {
-        "matches_used":len(history),"venue":venue,
-        "averages":{k:average(v) for k,v in produced.items()},
-        "coverage":{k:len([x for x in v if x is not None]) for k,v in produced.items()},
-        "values":produced,
-        "conceded_averages":{k:average(v) for k,v in conceded.items()},
-        "conceded_coverage":{k:len([x for x in v if x is not None]) for k,v in conceded.items()},
-        "conceded_values":conceded,"history":history
+        "goals": goals,
+        "corners": corners,
+        "shots": shots,
+        "sot": sot,
+        "yellow_cards": yellow,
+        "red_cards": red,
+        "cards": cards,
+        "fouls": fouls
+    }
+
+
+def external_team_fixture_rows( team_id, season_start_ts, current_kickoff_ts ):
+    """ Busca o histórico do time com fallback seguro. A chamada principal usa a janela da temporada atual. Se o provedor devolver lista vazia, repetimos sem a janela e filtramos localmente. Isso mantém SOMENTE a temporada atual e evita perder jogos por problemas de filtro no endpoint. """
+    common = {
+        "status": "finished",
+        "include": "stats",
+        "per_page": 50,
+        "lang": "pt"
+    }
+
+    attempts = [
+        {
+            **common,
+            "start_time": int(season_start_ts),
+            "end_time": int(current_kickoff_ts)
+        },
+        dict(common)
+    ]
+
+    rows = []
+
+    for params in attempts:
+        payload = football_data_get_cached(
+            f"teams/{team_id}/fixtures",
+            params=params,
+            ttl=300
+        )
+
+        candidate = (
+            payload.get("data") or []
+            if isinstance(payload, dict)
+            else []
+        )
+
+        if candidate:
+            rows = candidate
+            break
+
+    # Último fallback: alguns planos/competições podem
+    # retornar os resultados, mas não expandir stats na
+    # listagem. Nesse caso preservamos gols/cantos/cartões.
+    if not rows:
+        payload = football_data_get_cached(
+            f"teams/{team_id}/fixtures",
+            params={
+                "status": "finished",
+                "per_page": 50,
+                "lang": "pt"
+            },
+            ttl=300
+        )
+
+        rows = (
+            payload.get("data") or []
+            if isinstance(payload, dict)
+            else []
+        )
+
+    result = []
+
+    for fixture in rows:
+        if not isinstance(fixture, dict):
+            continue
+
+        kickoff_ts = external_fixture_timestamp(
+            fixture
+        )
+
+        if kickoff_ts is None:
+            continue
+
+        # Filtragem local garante que não entre temporada
+        # anterior, mesmo no fallback sem start_time.
+        if kickoff_ts < int(season_start_ts):
+            continue
+
+        if kickoff_ts >= int(current_kickoff_ts):
+            continue
+
+        result.append(fixture)
+
+    result.sort(
+        key=lambda fixture: (
+            external_fixture_timestamp(fixture)
+            or 0
+        ),
+        reverse=True
+    )
+
+    return result
+
+
+def external_team_average( team_id, current_external_id, limit, venue, season_start_ts, current_kickoff_ts ):
+    keys = [
+        "goals",
+        "corners",
+        "shots",
+        "sot",
+        "yellow_cards",
+        "red_cards",
+        "cards",
+        "fouls"
+    ]
+
+    fixtures = external_team_fixture_rows(
+        team_id,
+        season_start_ts,
+        current_kickoff_ts
+    )
+
+    selected = []
+    seen = set()
+
+    for fixture in fixtures:
+        fixture_id = fixture.get("id")
+
+        if not fixture_id:
+            continue
+
+        fixture_key = str(fixture_id)
+
+        if external_id_equal(
+            fixture_id,
+            current_external_id
+        ):
+            continue
+
+        if fixture_key in seen:
+            continue
+
+        teams = fixture.get("teams") or {}
+        home = teams.get("home") or {}
+        away = teams.get("away") or {}
+
+        if (
+            venue == "home"
+            and not external_id_equal(
+                home.get("id"),
+                team_id
+            )
+        ):
+            continue
+
+        if (
+            venue == "away"
+            and not external_id_equal(
+                away.get("id"),
+                team_id
+            )
+        ):
+            continue
+
+        seen.add(fixture_key)
+        selected.append(fixture)
+
+        if len(selected) >= limit:
+            break
+
+    produced = {key: [] for key in keys}
+    conceded = {key: [] for key in keys}
+    history = []
+
+    for fixture in selected:
+        own = external_fixture_values(
+            fixture,
+            team_id
+        )
+
+        opponent_id = external_opponent_id(
+            fixture,
+            team_id
+        )
+
+        opponent = (
+            external_fixture_values(
+                fixture,
+                opponent_id
+            )
+            if opponent_id is not None
+            else {key: None for key in keys}
+        )
+
+        for key in keys:
+            produced[key].append(
+                own.get(key)
+            )
+            conceded[key].append(
+                opponent.get(key)
+            )
+
+        teams = fixture.get("teams") or {}
+        home = teams.get("home") or {}
+        away = teams.get("away") or {}
+
+        history.append({
+            "match_id": fixture.get("id"),
+            "date": match_date(
+                fixture.get("kickoff_utc")
+            ),
+            "time_utc": fixture.get("kickoff_utc"),
+            "league": (
+                fixture.get("league")
+                or {}
+            ).get("name"),
+            "home": home.get("name", ""),
+            "away": away.get("name", ""),
+            "produced": own,
+            "conceded": opponent
+        })
+
+    return {
+        "matches_used": len(history),
+        "venue": venue,
+        "averages": {
+            key: average(values)
+            for key, values in produced.items()
+        },
+        "coverage": {
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
+            for key, values in produced.items()
+        },
+        "values": produced,
+        "conceded_averages": {
+            key: average(values)
+            for key, values in conceded.items()
+        },
+        "conceded_coverage": {
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
+            for key, values in conceded.items()
+        },
+        "conceded_values": conceded,
+        "history": history
     }
 
 
 def prepare_samples_hybrid(pitch_fixture, fixture_id):
-    external_fixture = find_external_fixture(pitch_fixture)
+    external_fixture = find_external_fixture(
+        pitch_fixture
+    )
+
+    league = pitch_fixture.get("league") or {}
+    pitch_home = (
+        pitch_fixture.get("home_team")
+        or {}
+    )
+    pitch_away = (
+        pitch_fixture.get("away_team")
+        or {}
+    )
+
     if not external_fixture:
-        league=pitch_fixture.get("league") or {}; home=pitch_fixture.get("home_team") or {}; away=pitch_fixture.get("away_team") or {}
-        samples=prepare_samples(league.get("id"), home.get("id"), away.get("id"), fixture_id)
-        samples["history_source"]="PITCHAPI"
+        samples = prepare_samples(
+            league.get("id"),
+            pitch_home.get("id"),
+            pitch_away.get("id"),
+            fixture_id
+        )
+        samples["history_source"] = "PITCHAPI"
         return samples
-    teams=external_fixture.get("teams") or {}; eh=teams.get("home") or {}; ea=teams.get("away") or {}
-    home_id, away_id = eh.get("id"), ea.get("id")
-    ext_id=external_fixture.get("id"); kickoff_ts=external_fixture.get("kickoff_ts") or parse_utc_timestamp(external_fixture.get("kickoff_utc"))
-    start_ts=current_external_season_start(external_fixture)
-    if not all((home_id,away_id,ext_id,kickoff_ts,start_ts)):
-        raise RuntimeError("Não foi possível montar o recorte da temporada atual.")
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        hf=ex.submit(external_team_average,home_id,ext_id,10,"home",start_ts,kickoff_ts)
-        af=ex.submit(external_team_average,away_id,ext_id,10,"away",start_ts,kickoff_ts)
-        home10, away10 = hf.result(), af.result()
-    return {"home_10":home10,"away_10":away10,"home_5":slice_team_data(home10,5),"away_5":slice_team_data(away10,5),"history_source":"5DOLLARFOOTBALLAPI"}
 
+    teams = external_fixture.get("teams") or {}
+    external_home = teams.get("home") or {}
+    external_away = teams.get("away") or {}
 
-@app.get("/api/debug/team-history")
-def debug_team_history():
-    """ Diagnóstico seguro do histórico da 5DollarFootballAPI. Não expõe nenhuma chave. Mostra apenas partidas e contagens. Exemplo: /api/debug/team-history?team_id=1767 """
-    team_id_raw = str(request.args.get("team_id", "")).strip()
+    home_id = external_home.get("id")
+    away_id = external_away.get("id")
+    external_fixture_id = external_fixture.get("id")
 
-    if not team_id_raw.isdigit():
-        return jsonify({
-            "ok": False,
-            "error": "Informe team_id numérico."
-        }), 400
+    kickoff_ts = (
+        external_fixture.get("kickoff_ts")
+        or parse_utc_timestamp(
+            external_fixture.get("kickoff_utc")
+        )
+    )
 
-    team_id = int(team_id_raw)
+    season_start_ts = (
+        current_external_season_start(
+            external_fixture
+        )
+    )
 
-    # Janela propositalmente ampla dentro do limite do plano Free:
-    # últimos 3 meses até agora.
-    now_ts = int(time.time())
-    start_ts = now_ts - (92 * 24 * 60 * 60)
+    if not all((
+        home_id,
+        away_id,
+        external_fixture_id,
+        kickoff_ts,
+        season_start_ts
+    )):
+        samples = prepare_samples(
+            league.get("id"),
+            pitch_home.get("id"),
+            pitch_away.get("id"),
+            fixture_id
+        )
+        samples["history_source"] = "PITCHAPI"
+        return samples
 
-    try:
-        payload_all = football_data_get(
-            f"teams/{team_id}/fixtures",
-            params={
-                "status": "all",
-                "start_time": start_ts,
-                "end_time": now_ts + (7 * 24 * 60 * 60),
-                "per_page": 50,
-                "lang": "pt"
-            }
+    with ThreadPoolExecutor(
+        max_workers=2
+    ) as executor:
+        home_future = executor.submit(
+            external_team_average,
+            home_id,
+            external_fixture_id,
+            10,
+            "home",
+            season_start_ts,
+            kickoff_ts
         )
 
-        payload_finished = football_data_get(
-            f"teams/{team_id}/fixtures",
-            params={
-                "status": "finished",
-                "start_time": start_ts,
-                "end_time": now_ts,
-                "per_page": 50,
-                "lang": "pt"
-            }
+        away_future = executor.submit(
+            external_team_average,
+            away_id,
+            external_fixture_id,
+            10,
+            "away",
+            season_start_ts,
+            kickoff_ts
         )
 
-        all_rows = (
-            payload_all.get("data") or []
-            if isinstance(payload_all, dict)
-            else []
+        home_10 = home_future.result()
+        away_10 = away_future.result()
+
+    # Se uma equipe vier vazia da fonte externa, tentamos
+    # somente para aquela equipe o histórico atual da liga
+    # na PitchAPI. Não substituímos dados externos válidos.
+    used_pitch_fallback = False
+
+    if home_10.get("matches_used", 0) == 0:
+        fallback_home = team_average(
+            league.get("id"),
+            pitch_home.get("id"),
+            fixture_id,
+            10,
+            "home"
         )
-        finished_rows = (
-            payload_finished.get("data") or []
-            if isinstance(payload_finished, dict)
-            else []
+
+        if fallback_home.get(
+            "matches_used",
+            0
+        ) > 0:
+            home_10 = fallback_home
+            used_pitch_fallback = True
+
+    if away_10.get("matches_used", 0) == 0:
+        fallback_away = team_average(
+            league.get("id"),
+            pitch_away.get("id"),
+            fixture_id,
+            10,
+            "away"
         )
 
-        def compact(rows):
-            result = []
+        if fallback_away.get(
+            "matches_used",
+            0
+        ) > 0:
+            away_10 = fallback_away
+            used_pitch_fallback = True
 
-            for fixture in rows:
-                if not isinstance(fixture, dict):
-                    continue
+    if used_pitch_fallback:
+        history_source = (
+            "5DOLLARFOOTBALLAPI + PITCHAPI"
+        )
+    else:
+        history_source = (
+            "5DOLLARFOOTBALLAPI"
+        )
 
-                teams = fixture.get("teams") or {}
-                home = teams.get("home") or {}
-                away = teams.get("away") or {}
-                league = fixture.get("league") or {}
-
-                if home.get("id") == team_id:
-                    venue = "home"
-                elif away.get("id") == team_id:
-                    venue = "away"
-                else:
-                    venue = "unknown"
-
-                result.append({
-                    "id": fixture.get("id"),
-                    "kickoff_utc": fixture.get("kickoff_utc"),
-                    "status": fixture.get("status"),
-                    "league": league.get("name"),
-                    "home": home.get("name"),
-                    "away": away.get("name"),
-                    "venue_for_team": venue,
-                    "goals": fixture.get("goals"),
-                    "corners": fixture.get("corners"),
-                    "cards": fixture.get("cards")
-                })
-
-            return result
-
-        finished_compact = compact(finished_rows)
-
-        return jsonify({
-            "ok": True,
-            "configured": bool(FOOTBALL_DATA_KEY),
-            "team_id": team_id,
-            "window_days": 92,
-            "all_count": len(all_rows),
-            "finished_count": len(finished_rows),
-            "finished_home_count": len([
-                row for row in finished_compact
-                if row.get("venue_for_team") == "home"
-            ]),
-            "finished_away_count": len([
-                row for row in finished_compact
-                if row.get("venue_for_team") == "away"
-            ]),
-            "all": compact(all_rows),
-            "finished": finished_compact,
-            "pagination_all": (
-                payload_all.get("pagination")
-                if isinstance(payload_all, dict)
-                else None
-            ),
-            "pagination_finished": (
-                payload_finished.get("pagination")
-                if isinstance(payload_finished, dict)
-                else None
-            )
-        })
-
-    except Exception as error:
-        return jsonify({
-            "ok": False,
-            "configured": bool(FOOTBALL_DATA_KEY),
-            "team_id": team_id,
-            "error": str(error)
-        }), 502
+    return {
+        "home_10": home_10,
+        "away_10": away_10,
+        "home_5": slice_team_data(
+            home_10,
+            5
+        ),
+        "away_5": slice_team_data(
+            away_10,
+            5
+        ),
+        "history_source": history_source
+    }
 
 
 # =========================================================
@@ -1774,7 +2126,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "HYBRID-TODAY-V12.1-DIAG"
+        "version": "HISTORY-FIX-V13"
     })
 
 
@@ -2630,7 +2982,7 @@ def build_analysis_payload( fixture_id, sample ):
     return {
         "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
         "history_source": samples.get("history_source"),
-        "version": "HYBRID-TODAY-V12.1-DIAG",
+        "version": "HISTORY-FIX-V13",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -2795,7 +3147,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
-            "version": "HYBRID-TODAY-V12.1-DIAG",
+            "version": "HISTORY-FIX-V13",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
