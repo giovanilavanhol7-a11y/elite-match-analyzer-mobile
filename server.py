@@ -217,203 +217,6 @@ def build_match_context(fixture):
 
 
 # =========================================================
-# H2H
-# =========================================================
-
-def get_h2h(fixture_id):
-    try:
-        data = api_get(
-            f"v1/matches/"
-            f"{fixture_id}/h2h"
-        )
-
-    except Exception:
-        return {
-            "available": False,
-            "total_matches": 0,
-            "home_wins": 0,
-            "draws": 0,
-            "away_wins": 0,
-            "recent_matches": []
-        }
-
-    if not isinstance(
-        data,
-        dict
-    ):
-        return {
-            "available": False,
-            "total_matches": 0,
-            "home_wins": 0,
-            "draws": 0,
-            "away_wins": 0,
-            "recent_matches": []
-        }
-
-    recent = []
-
-    for match in (
-        data.get("recent_matches")
-        or []
-    ):
-
-        if not match.get(
-            "finished",
-            False
-        ):
-            continue
-
-        home = (
-            match.get("home")
-            or {}
-        )
-
-        away = (
-            match.get("away")
-            or {}
-        )
-
-        score_home = number(
-            match.get("score_home")
-        )
-
-        score_away = number(
-            match.get("score_away")
-        )
-
-        if (
-            score_home is None
-            or
-            score_away is None
-        ):
-            continue
-
-        recent.append({
-            "date":
-                match_date(
-                    match.get(
-                        "time_utc"
-                    )
-                ),
-
-            "time_utc":
-                match.get(
-                    "time_utc"
-                ),
-
-            "home": {
-                "id":
-                    home.get("id"),
-
-                "name":
-                    home.get(
-                        "name",
-                        "Mandante"
-                    )
-            },
-
-            "away": {
-                "id":
-                    away.get("id"),
-
-                "name":
-                    away.get(
-                        "name",
-                        "Visitante"
-                    )
-            },
-
-            "score_home":
-                int(score_home),
-
-            "score_away":
-                int(score_away),
-
-            "finished":
-                True
-        })
-
-    recent.sort(
-        key=lambda x: (
-            x.get("time_utc")
-            or ""
-        ),
-        reverse=True
-    )
-
-    home_team = (
-        data.get("home_team")
-        or {}
-    )
-
-    away_team = (
-        data.get("away_team")
-        or {}
-    )
-
-    return {
-        "available": True,
-
-        "home_team": {
-            "id":
-                home_team.get("id"),
-
-            "name":
-                home_team.get(
-                    "name",
-                    "Mandante"
-                )
-        },
-
-        "away_team": {
-            "id":
-                away_team.get("id"),
-
-            "name":
-                away_team.get(
-                    "name",
-                    "Visitante"
-                )
-        },
-
-        "total_matches":
-            int(
-                data.get(
-                    "total_matches"
-                )
-                or 0
-            ),
-
-        "home_wins":
-            int(
-                data.get(
-                    "home_wins"
-                )
-                or 0
-            ),
-
-        "draws":
-            int(
-                data.get(
-                    "draws"
-                )
-                or 0
-            ),
-
-        "away_wins":
-            int(
-                data.get(
-                    "away_wins"
-                )
-                or 0
-            ),
-
-        "recent_matches":
-            recent[:10]
-    }
-
-
-# =========================================================
 # NORMALIZAR PARTIDA
 # =========================================================
 
@@ -799,6 +602,714 @@ def get_card_breakdown(
             float(
                 yellow + red
             )
+    }
+
+
+# =========================================================
+# H2H ESTATÍSTICO
+# =========================================================
+
+H2H_STATS_LIMIT = 5
+
+
+def empty_h2h():
+    return {
+        "available": False,
+        "total_matches": 0,
+        "home_wins": 0,
+        "draws": 0,
+        "away_wins": 0,
+        "recent_matches": [],
+        "stats_analysis": {
+            "matches_checked": 0,
+            "matches_with_detailed_stats": 0,
+            "goals": [],
+            "corners": [],
+            "sot": [],
+            "yellow_cards": [],
+            "fouls": []
+        }
+    }
+
+
+def total_line_result(
+    values,
+    threshold,
+    label
+):
+    valid = [
+        float(value)
+        for value in values
+        if value is not None
+    ]
+
+    if not valid:
+        return {
+            "label":
+                label,
+
+            "line":
+                threshold,
+
+            "hits":
+                0,
+
+            "games":
+                0,
+
+            "rate":
+                None
+        }
+
+    hits = sum(
+        1
+        for value in valid
+        if value > threshold
+    )
+
+    return {
+        "label":
+            label,
+
+        "line":
+            threshold,
+
+        "hits":
+            hits,
+
+        "games":
+            len(valid),
+
+        "rate":
+            round(
+                hits /
+                len(valid) *
+                100,
+                1
+            )
+    }
+
+
+def find_match_id_by_date(
+    time_utc,
+    home_team_id,
+    away_team_id
+):
+    if not time_utc:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(
+            time_utc.replace(
+                "Z",
+                "+00:00"
+            )
+        )
+
+        date_value = dt.strftime(
+            "%Y-%m-%d"
+        )
+
+    except Exception:
+        return None
+
+    try:
+        data = api_get(
+            f"v1/date/{date_value}"
+        )
+
+    except Exception:
+        return None
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        return None
+
+    for match in (
+        data.get("matches")
+        or []
+    ):
+
+        home = (
+            match.get("home_team")
+            or {}
+        )
+
+        away = (
+            match.get("away_team")
+            or {}
+        )
+
+        if (
+            home.get("id")
+            == home_team_id
+            and
+            away.get("id")
+            == away_team_id
+        ):
+            return match.get("id")
+
+    return None
+
+
+def h2h_detailed_values(
+    match_id,
+    home_team_id,
+    away_team_id
+):
+    if not match_id:
+        return {
+            "corners": None,
+            "sot": None,
+            "yellow_cards": None,
+            "fouls": None
+        }
+
+    stats = get_stats(
+        match_id
+    )
+
+    home_corners = find_exact_stat(
+        stats,
+        [
+            "corners",
+            "corner_kicks",
+            "corner kicks"
+        ],
+        True
+    )
+
+    away_corners = find_exact_stat(
+        stats,
+        [
+            "corners",
+            "corner_kicks",
+            "corner kicks"
+        ],
+        False
+    )
+
+    home_fouls = find_exact_stat(
+        stats,
+        [
+            "fouls",
+            "fouls_committed",
+            "fouls committed"
+        ],
+        True
+    )
+
+    away_fouls = find_exact_stat(
+        stats,
+        [
+            "fouls",
+            "fouls_committed",
+            "fouls committed"
+        ],
+        False
+    )
+
+    home_sot = find_exact_stat(
+        stats,
+        [
+            "shots_on_target",
+            "shots on target"
+        ],
+        True
+    )
+
+    away_sot = find_exact_stat(
+        stats,
+        [
+            "shots_on_target",
+            "shots on target"
+        ],
+        False
+    )
+
+    if home_sot is None:
+        home_sot = sot_from_shots(
+            match_id,
+            home_team_id
+        )
+
+    if away_sot is None:
+        away_sot = sot_from_shots(
+            match_id,
+            away_team_id
+        )
+
+    home_cards = get_card_breakdown(
+        match_id,
+        home_team_id
+    )
+
+    away_cards = get_card_breakdown(
+        match_id,
+        away_team_id
+    )
+
+    if (
+        home_corners is not None
+        and
+        away_corners is not None
+    ):
+        corners = (
+            home_corners +
+            away_corners
+        )
+
+    else:
+        corners = None
+
+    if (
+        home_sot is not None
+        and
+        away_sot is not None
+    ):
+        sot = (
+            home_sot +
+            away_sot
+        )
+
+    else:
+        sot = None
+
+    if (
+        home_fouls is not None
+        and
+        away_fouls is not None
+    ):
+        fouls = (
+            home_fouls +
+            away_fouls
+        )
+
+    else:
+        fouls = None
+
+    if (
+        home_cards is not None
+        and
+        away_cards is not None
+    ):
+        yellow_cards = (
+            home_cards[
+                "yellow_cards"
+            ]
+            +
+            away_cards[
+                "yellow_cards"
+            ]
+        )
+
+    else:
+        yellow_cards = None
+
+    return {
+        "corners":
+            corners,
+
+        "sot":
+            sot,
+
+        "yellow_cards":
+            yellow_cards,
+
+        "fouls":
+            fouls
+    }
+
+
+def build_h2h_stats(
+    recent_matches
+):
+    goals_values = []
+    corners_values = []
+    sot_values = []
+    yellow_values = []
+    fouls_values = []
+
+    detailed_checked = 0
+    detailed_available = 0
+
+    for index, match in enumerate(
+        recent_matches
+    ):
+
+        score_home = number(
+            match.get(
+                "score_home"
+            )
+        )
+
+        score_away = number(
+            match.get(
+                "score_away"
+            )
+        )
+
+        if (
+            score_home is not None
+            and
+            score_away is not None
+        ):
+            goals_values.append(
+                score_home +
+                score_away
+            )
+
+        if index >= H2H_STATS_LIMIT:
+            continue
+
+        home = (
+            match.get("home")
+            or {}
+        )
+
+        away = (
+            match.get("away")
+            or {}
+        )
+
+        detailed_checked += 1
+
+        match_id = (
+            match.get("match_id")
+            or
+            find_match_id_by_date(
+                match.get(
+                    "time_utc"
+                ),
+                home.get("id"),
+                away.get("id")
+            )
+        )
+
+        if not match_id:
+            continue
+
+        detailed = (
+            h2h_detailed_values(
+                match_id,
+                home.get("id"),
+                away.get("id")
+            )
+        )
+
+        has_detailed_data = any(
+            value is not None
+            for value
+            in detailed.values()
+        )
+
+        if has_detailed_data:
+            detailed_available += 1
+
+        corners_values.append(
+            detailed.get(
+                "corners"
+            )
+        )
+
+        sot_values.append(
+            detailed.get(
+                "sot"
+            )
+        )
+
+        yellow_values.append(
+            detailed.get(
+                "yellow_cards"
+            )
+        )
+
+        fouls_values.append(
+            detailed.get(
+                "fouls"
+            )
+        )
+
+    return {
+        "matches_checked":
+            detailed_checked,
+
+        "matches_with_detailed_stats":
+            detailed_available,
+
+        "goals": [
+            total_line_result(
+                goals_values,
+                0.5,
+                "+0.5 Gols"
+            ),
+
+            total_line_result(
+                goals_values,
+                1.5,
+                "+1.5 Gols"
+            ),
+
+            total_line_result(
+                goals_values,
+                2.5,
+                "+2.5 Gols"
+            )
+        ],
+
+        "corners": [
+            total_line_result(
+                corners_values,
+                7.5,
+                "+7.5 Escanteios"
+            ),
+
+            total_line_result(
+                corners_values,
+                8.5,
+                "+8.5 Escanteios"
+            )
+        ],
+
+        "sot": [
+            total_line_result(
+                sot_values,
+                5.5,
+                "+5.5 Chutes no gol"
+            ),
+
+            total_line_result(
+                sot_values,
+                7.5,
+                "+7.5 Chutes no gol"
+            )
+        ],
+
+        "yellow_cards": [
+            total_line_result(
+                yellow_values,
+                2.5,
+                "+2.5 Cartões amarelos"
+            ),
+
+            total_line_result(
+                yellow_values,
+                3.5,
+                "+3.5 Cartões amarelos"
+            )
+        ],
+
+        "fouls": [
+            total_line_result(
+                fouls_values,
+                19.5,
+                "+19.5 Faltas"
+            ),
+
+            total_line_result(
+                fouls_values,
+                21.5,
+                "+21.5 Faltas"
+            )
+        ]
+    }
+
+
+def get_h2h(fixture_id):
+    try:
+        data = api_get(
+            f"v1/matches/"
+            f"{fixture_id}/h2h"
+        )
+
+    except Exception:
+        return empty_h2h()
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        return empty_h2h()
+
+    recent = []
+
+    for match in (
+        data.get("recent_matches")
+        or []
+    ):
+
+        if not match.get(
+            "finished",
+            False
+        ):
+            continue
+
+        home = (
+            match.get("home")
+            or {}
+        )
+
+        away = (
+            match.get("away")
+            or {}
+        )
+
+        score_home = number(
+            match.get("score_home")
+        )
+
+        score_away = number(
+            match.get("score_away")
+        )
+
+        if (
+            score_home is None
+            or
+            score_away is None
+        ):
+            continue
+
+        recent.append({
+            "match_id":
+                match.get("id"),
+
+            "date":
+                match_date(
+                    match.get(
+                        "time_utc"
+                    )
+                ),
+
+            "time_utc":
+                match.get(
+                    "time_utc"
+                ),
+
+            "home": {
+                "id":
+                    home.get("id"),
+
+                "name":
+                    home.get(
+                        "name",
+                        "Mandante"
+                    )
+            },
+
+            "away": {
+                "id":
+                    away.get("id"),
+
+                "name":
+                    away.get(
+                        "name",
+                        "Visitante"
+                    )
+            },
+
+            "score_home":
+                int(score_home),
+
+            "score_away":
+                int(score_away),
+
+            "finished":
+                True
+        })
+
+    recent.sort(
+        key=lambda x: (
+            x.get(
+                "time_utc"
+            )
+            or ""
+        ),
+        reverse=True
+    )
+
+    recent = recent[:10]
+
+    home_team = (
+        data.get("home_team")
+        or {}
+    )
+
+    away_team = (
+        data.get("away_team")
+        or {}
+    )
+
+    stats_analysis = (
+        build_h2h_stats(
+            recent
+        )
+    )
+
+    return {
+        "available":
+            True,
+
+        "home_team": {
+            "id":
+                home_team.get("id"),
+
+            "name":
+                home_team.get(
+                    "name",
+                    "Mandante"
+                )
+        },
+
+        "away_team": {
+            "id":
+                away_team.get("id"),
+
+            "name":
+                away_team.get(
+                    "name",
+                    "Visitante"
+                )
+        },
+
+        "total_matches":
+            int(
+                data.get(
+                    "total_matches"
+                )
+                or 0
+            ),
+
+        "home_wins":
+            int(
+                data.get(
+                    "home_wins"
+                )
+                or 0
+            ),
+
+        "draws":
+            int(
+                data.get(
+                    "draws"
+                )
+                or 0
+            ),
+
+        "away_wins":
+            int(
+                data.get(
+                    "away_wins"
+                )
+                or 0
+            ),
+
+        "recent_matches":
+            recent,
+
+        "stats_analysis":
+            stats_analysis
     }
 
 
@@ -1893,7 +2404,7 @@ def health():
             TIMEZONE,
 
         "version":
-            "H2H-V1"
+            "H2H-STATS-V1"
     })
 
 
@@ -2200,7 +2711,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "H2H-V1",
+                "H2H-STATS-V1",
 
             "sample_size":
                 sample,
@@ -2486,7 +2997,7 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "H2H-V1",
+                "H2H-STATS-V1",
 
             "sample_size":
                 sample,
@@ -2494,25 +3005,8 @@ def analysis(fixture_id):
             "match_info":
                 {},
 
-            "h2h": {
-                "available":
-                    False,
-
-                "total_matches":
-                    0,
-
-                "home_wins":
-                    0,
-
-                "draws":
-                    0,
-
-                "away_wins":
-                    0,
-
-                "recent_matches":
-                    []
-            },
+            "h2h":
+                empty_h2h(),
 
             "stats":
                 [],
@@ -2711,7 +3205,7 @@ def lines(fixture_id):
                 sample,
 
             "version":
-                "H2H-V1",
+                "H2H-STATS-V1",
 
             "match_info":
                 match_context,
@@ -2830,7 +3324,10 @@ def lines(fixture_id):
 
         return jsonify({
             "error":
-                str(error)
+                str(error),
+
+            "version":
+                "H2H-STATS-V1"
         }), 502
 
 
