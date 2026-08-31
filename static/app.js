@@ -177,10 +177,14 @@ function renderMatchContext(data) {
     info.round || "Não informada";
 
   const time =
-    info.time || currentFixture?.time || "—";
+    info.time ||
+    currentFixture?.time ||
+    "—";
 
   const status =
-    info.status || currentFixture?.status || "—";
+    info.status ||
+    currentFixture?.status ||
+    "—";
 
   if (!contextCard) {
     const statsCard =
@@ -353,6 +357,459 @@ function renderMatchContext(data) {
         </strong>
 
       </div>
+
+    </div>
+
+  `;
+}
+
+
+/* ======================================================
+   H2H
+====================================================== */
+
+function renderH2H(data) {
+  let h2hCard =
+    $("h2hCard");
+
+  const h2h =
+    data.h2h || {};
+
+  const homeName =
+    data.home?.name ||
+    currentFixture?.home?.name ||
+    "Mandante";
+
+  const awayName =
+    data.away?.name ||
+    currentFixture?.away?.name ||
+    "Visitante";
+
+  if (!h2hCard) {
+    const statsCard =
+      Array
+        .from(
+          analysisPanel.querySelectorAll(
+            ".card"
+          )
+        )
+        .find(
+          card =>
+            card.querySelector(
+              "#statsList"
+            )
+        );
+
+    if (!statsCard) {
+      return;
+    }
+
+    h2hCard =
+      document.createElement(
+        "div"
+      );
+
+    h2hCard.id =
+      "h2hCard";
+
+    h2hCard.className =
+      "card";
+
+    h2hCard.style.marginBottom =
+      "16px";
+
+    statsCard.insertAdjacentElement(
+      "beforebegin",
+      h2hCard
+    );
+  }
+
+  if (
+    !h2h.available
+  ) {
+    h2hCard.innerHTML = `
+
+      <div class="section-head">
+
+        <h2>
+          ⚔️ Confronto direto
+        </h2>
+
+        <span>
+          H2H
+        </span>
+
+      </div>
+
+      <div
+        style="
+          margin-top:12px;
+          padding:13px;
+          border-radius:11px;
+          background:rgba(255,255,255,.04);
+          font-size:13px;
+          line-height:1.6;
+          opacity:.75;
+        "
+      >
+
+        Não foram encontrados dados
+        suficientes de confronto direto
+        para esta partida.
+
+      </div>
+
+    `;
+
+    return;
+  }
+
+  const totalMatches =
+    Number(
+      h2h.total_matches || 0
+    );
+
+  const homeWins =
+    Number(
+      h2h.home_wins || 0
+    );
+
+  const draws =
+    Number(
+      h2h.draws || 0
+    );
+
+  const awayWins =
+    Number(
+      h2h.away_wins || 0
+    );
+
+  const recentMatches =
+    Array.isArray(
+      h2h.recent_matches
+    )
+      ? h2h.recent_matches
+      : [];
+
+  let recentHtml = "";
+
+  if (!recentMatches.length) {
+    recentHtml = `
+
+      <div
+        style="
+          padding:12px;
+          border-radius:10px;
+          background:rgba(255,255,255,.035);
+          font-size:12px;
+          opacity:.7;
+        "
+      >
+
+        Nenhum resultado recente
+        disponível.
+
+      </div>
+
+    `;
+  } else {
+    recentHtml =
+      recentMatches
+        .map(match => {
+
+          const matchHome =
+            match.home?.name ||
+            "Mandante";
+
+          const matchAway =
+            match.away?.name ||
+            "Visitante";
+
+          const scoreHome =
+            match.score_home;
+
+          const scoreAway =
+            match.score_away;
+
+          const date =
+            match.date || "—";
+
+          return `
+
+            <div
+              style="
+                padding:11px 0;
+                border-bottom:1px solid rgba(255,255,255,.07);
+              "
+            >
+
+              <div
+                style="
+                  font-size:11px;
+                  opacity:.6;
+                  margin-bottom:6px;
+                "
+              >
+                ${date}
+              </div>
+
+              <div
+                style="
+                  display:grid;
+                  grid-template-columns:1fr auto 1fr;
+                  align-items:center;
+                  gap:8px;
+                "
+              >
+
+                <div
+                  style="
+                    text-align:left;
+                    font-size:12px;
+                    font-weight:700;
+                  "
+                >
+                  ${matchHome}
+                </div>
+
+                <div
+                  style="
+                    min-width:54px;
+                    text-align:center;
+                    padding:6px 8px;
+                    border-radius:8px;
+                    background:rgba(255,255,255,.06);
+                    font-weight:800;
+                  "
+                >
+
+                  ${scoreHome}
+                  ×
+                  ${scoreAway}
+
+                </div>
+
+                <div
+                  style="
+                    text-align:right;
+                    font-size:12px;
+                    font-weight:700;
+                  "
+                >
+                  ${matchAway}
+                </div>
+
+              </div>
+
+            </div>
+
+          `;
+        })
+        .join("");
+  }
+
+  h2hCard.innerHTML = `
+
+    <div class="section-head">
+
+      <h2>
+        ⚔️ Confronto direto
+      </h2>
+
+      <span>
+        H2H
+      </span>
+
+    </div>
+
+    <div
+      style="
+        margin-top:12px;
+        padding:12px;
+        border-radius:12px;
+        background:rgba(255,255,255,.04);
+      "
+    >
+
+      <div
+        style="
+          text-align:center;
+          font-size:12px;
+          opacity:.7;
+          margin-bottom:12px;
+        "
+      >
+
+        ${totalMatches}
+        confrontos encontrados
+
+      </div>
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:1fr 1fr 1fr;
+          gap:8px;
+        "
+      >
+
+        <div
+          style="
+            padding:11px 6px;
+            border-radius:10px;
+            background:rgba(255,255,255,.04);
+            text-align:center;
+          "
+        >
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-bottom:5px;
+            "
+          >
+            ${homeName}
+          </div>
+
+          <strong
+            style="
+              font-size:22px;
+            "
+          >
+            ${homeWins}
+          </strong>
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-top:3px;
+            "
+          >
+            vitórias
+          </div>
+
+        </div>
+
+        <div
+          style="
+            padding:11px 6px;
+            border-radius:10px;
+            background:rgba(255,255,255,.04);
+            text-align:center;
+          "
+        >
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-bottom:5px;
+            "
+          >
+            Empates
+          </div>
+
+          <strong
+            style="
+              font-size:22px;
+            "
+          >
+            ${draws}
+          </strong>
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-top:3px;
+            "
+          >
+            jogos
+          </div>
+
+        </div>
+
+        <div
+          style="
+            padding:11px 6px;
+            border-radius:10px;
+            background:rgba(255,255,255,.04);
+            text-align:center;
+          "
+        >
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-bottom:5px;
+            "
+          >
+            ${awayName}
+          </div>
+
+          <strong
+            style="
+              font-size:22px;
+            "
+          >
+            ${awayWins}
+          </strong>
+
+          <div
+            style="
+              font-size:10px;
+              opacity:.65;
+              margin-top:3px;
+            "
+          >
+            vitórias
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <div
+      style="
+        margin-top:16px;
+        font-size:14px;
+        font-weight:800;
+        margin-bottom:8px;
+      "
+    >
+      Últimos confrontos
+    </div>
+
+    <div
+      style="
+        padding:0 11px;
+        border-radius:11px;
+        background:rgba(255,255,255,.025);
+      "
+    >
+
+      ${recentHtml}
+
+    </div>
+
+    <div
+      style="
+        margin-top:10px;
+        font-size:11px;
+        line-height:1.5;
+        opacity:.6;
+      "
+    >
+
+      O H2H é mostrado como contexto
+      histórico. Ele ainda não altera
+      automaticamente o ranking das
+      oportunidades.
 
     </div>
 
@@ -3661,140 +4118,4 @@ async function loadAnalysis() {
               )}
             </div>
 
-            <div class="stat-label">
-              ${s.label}
-            </div>
-
-            <div class="stat-value">
-              ${formatStat(
-                s.away
-              )}
-            </div>
-
-          </div>
-
-        `)
-        .join("") ||
-
-      `
-
-        <div class="empty">
-          Sem estatísticas disponíveis.
-        </div>
-
-      `;
-
-    renderMatchContext(
-      data
-    );
-
-    renderBestOpportunities(
-      data
-    );
-
-    renderLines(
-      data
-    );
-
-  } catch (error) {
-
-    $("statsList").innerHTML = `
-
-      <div class="empty error">
-        ${error.message}
-      </div>
-
-    `;
-
-  }
-}
-
-
-/* ======================================================
-   ATUALIZAR
-====================================================== */
-
-$("refreshBtn")
-  .addEventListener(
-    "click",
-    loadFixtures
-  );
-
-
-/* ======================================================
-   VOLTAR
-====================================================== */
-
-$("backBtn")
-  .addEventListener(
-    "click",
-    () => {
-
-      currentFixture = null;
-
-      analysisPanel.classList.add(
-        "hidden"
-      );
-
-      const intro =
-        document.querySelector(
-          ".intro"
-        );
-
-      if (intro) {
-        intro.classList.remove(
-          "hidden"
-        );
-      }
-
-      fixturesEl.classList.remove(
-        "hidden"
-      );
-
-    }
-  );
-
-
-/* ======================================================
-   ÚLTIMOS 5 / 10
-====================================================== */
-
-document
-  .querySelectorAll(".tab")
-  .forEach(btn => {
-
-    btn.addEventListener(
-      "click",
-      async () => {
-
-        currentSample =
-          Number(
-            btn.dataset.sample
-          );
-
-        document
-          .querySelectorAll(".tab")
-          .forEach(b => {
-
-            b.classList.toggle(
-              "active",
-              b === btn
-            );
-
-          });
-
-        if (currentFixture) {
-          await loadAnalysis();
-        }
-
-      }
-    );
-
-  });
-
-
-/* ======================================================
-   INICIAR
-====================================================== */
-
-loadFixtures();
+            <div class="stat
