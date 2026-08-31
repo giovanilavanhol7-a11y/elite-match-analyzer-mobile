@@ -7,6 +7,7 @@ from urllib.parse import quote
 import os
 import time
 import requests
+import re
 
 
 app = Flask(__name__, static_folder="static")
@@ -21,6 +22,15 @@ FIXTURES_CACHE = {
     "matches": []
 }
 FIXTURES_CACHE_SECONDS = 300
+
+LEAGUES_CACHE = {
+    "created_at": 0,
+    "leagues": []
+}
+LEAGUES_CACHE_SECONDS = 3600
+
+LEAGUE_MATCHES_CACHE = {}
+LEAGUE_MATCHES_CACHE_SECONDS = 1800
 
 
 # =========================================================
@@ -515,6 +525,175 @@ def get_card_breakdown(match_id, team_id):
 # ÚLTIMOS JOGOS
 # =========================================================
 
+def _season_sort_key(value):
+    text = str(value or "")
+    years = re.findall(r"\d{4}", text)
+
+    if not years:
+        return (0, 0, text)
+
+    nums = [int(year) for year in years]
+
+    return (
+        max(nums),
+        min(nums),
+        text
+    )
+
+
+def get_all_leagues_cached():
+    now = time.time()
+
+    if (
+        LEAGUES_CACHE["leagues"]
+        and (
+            now
+            - LEAGUES_CACHE["created_at"]
+            < LEAGUES_CACHE_SECONDS
+        )
+    ):
+        return LEAGUES_CACHE["leagues"]
+
+    data = api_get("v1/leagues")
+    leagues = extract_leagues(data)
+
+    LEAGUES_CACHE["created_at"] = now
+    LEAGUES_CACHE["leagues"] = leagues
+
+    return leagues
+
+
+def get_league_seasons(league_id):
+    try:
+        leagues = get_all_leagues_cached()
+    except Exception:
+        return []
+
+    for league in leagues:
+        if not isinstance(league, dict):
+            continue
+
+        if league.get("id") != league_id:
+            continue
+
+        seasons = league.get("seasons") or []
+
+        if not isinstance(seasons, list):
+            return []
+
+        cleaned = []
+
+        for season in seasons:
+            if season is None:
+                continue
+
+            value = str(season).strip()
+
+            if value and value not in cleaned:
+                cleaned.append(value)
+
+        cleaned.sort(
+            key=_season_sort_key,
+            reverse=True
+        )
+
+        return cleaned
+
+    return []
+
+
+def get_league_matches_cached(
+    league_id,
+    season=None
+):
+    cache_key = (
+        league_id,
+        str(season or "")
+    )
+
+    now = time.time()
+
+    cached = LEAGUE_MATCHES_CACHE.get(
+        cache_key
+    )
+
+    if (
+        cached
+        and (
+            now
+            - cached["created_at"]
+            < LEAGUE_MATCHES_CACHE_SECONDS
+        )
+    ):
+        return cached["matches"]
+
+    if season:
+        season_param = quote(
+            str(season),
+            safe=""
+        )
+
+        path = (
+            f"v1/leagues/{league_id}/matches"
+            f"?season={season_param}"
+        )
+    else:
+        path = (
+            f"v1/leagues/{league_id}/matches"
+        )
+
+    data = api_get(path)
+
+    if not isinstance(data, dict):
+        matches = []
+    else:
+        matches = data.get("matches") or []
+
+    LEAGUE_MATCHES_CACHE[
+        cache_key
+    ] = {
+        "created_at": now,
+        "matches": matches
+    }
+
+    return matches
+
+
+def _finished_match_status(match):
+    status = str(
+        match.get("status", "")
+    ).strip().lower()
+
+    return status in (
+        "finished",
+        "complete",
+        "completed",
+        "ft",
+        "full_time",
+        "full time"
+    )
+
+
+def _match_fits_team_venue(
+    match,
+    team_id,
+    venue
+):
+    home = match.get("home_team") or {}
+    away = match.get("away_team") or {}
+
+    if venue == "home":
+        return home.get("id") == team_id
+
+    if venue == "away":
+        return away.get("id") == team_id
+
+    return (
+        home.get("id") == team_id
+        or away.get("id") == team_id
+    )
+
+
 def recent_matches(
     league_id,
     team_id,
@@ -525,62 +704,126 @@ def recent_matches(
     if not league_id:
         return []
 
-    try:
-        data = api_get(
-            f"v1/leagues/{league_id}/matches"
-        )
-    except Exception:
-        return []
-
-    if not isinstance(data, dict):
-        return []
-
     result = []
+    seen_ids = set()
 
-    for match in data.get("matches") or []:
-        if match.get("id") == current_id:
+    # Primeiro consulta as temporadas anunciadas pela própria liga,
+    # começando pelas mais recentes. Isso permite completar os 10
+    # jogos com a temporada anterior quando a temporada atual ainda
+    # está no começo.
+    seasons = get_league_seasons(
+        league_id
+    )
+
+    # Segurança: se a API não devolver temporadas, mantém o
+    # comportamento antigo consultando a temporada padrão.
+    season_queries = (
+        seasons[:4]
+        if seasons
+        else [None]
+    )
+
+    for season in season_queries:
+        try:
+            matches = get_league_matches_cached(
+                league_id,
+                season
+            )
+        except Exception:
             continue
 
-        home = match.get("home_team") or {}
-        away = match.get("away_team") or {}
+        ordered = list(matches)
 
-        if venue == "home":
-            if home.get("id") != team_id:
+        ordered.sort(
+            key=lambda item: (
+                item.get("time_utc")
+                or item.get("date")
+                or ""
+            ),
+            reverse=True
+        )
+
+        for match in ordered:
+            match_id = match.get("id")
+
+            if not match_id:
                 continue
-        elif venue == "away":
-            if away.get("id") != team_id:
+
+            if match_id == current_id:
                 continue
-        else:
-            if (
-                home.get("id") != team_id
-                and away.get("id") != team_id
+
+            if match_id in seen_ids:
+                continue
+
+            if not _finished_match_status(
+                match
             ):
                 continue
 
-        status = str(
-            match.get("status", "")
-        ).strip().lower()
+            if not _match_fits_team_venue(
+                match,
+                team_id,
+                venue
+            ):
+                continue
 
-        if status not in (
-            "finished",
-            "complete",
-            "completed",
-            "ft",
-            "full_time",
-            "full time"
-        ):
-            continue
+            seen_ids.add(match_id)
+            result.append(match)
 
-        result.append(match)
+            if len(result) >= limit:
+                return result[:limit]
 
-    result.sort(
-        key=lambda item: (
-            item.get("time_utc")
-            or item.get("date")
-            or ""
-        ),
-        reverse=True
-    )
+    # Fallback final para a temporada padrão, caso as temporadas
+    # explícitas não tenham completado a amostra.
+    if len(result) < limit:
+        try:
+            matches = get_league_matches_cached(
+                league_id,
+                None
+            )
+        except Exception:
+            matches = []
+
+        ordered = list(matches)
+
+        ordered.sort(
+            key=lambda item: (
+                item.get("time_utc")
+                or item.get("date")
+                or ""
+            ),
+            reverse=True
+        )
+
+        for match in ordered:
+            match_id = match.get("id")
+
+            if not match_id:
+                continue
+
+            if match_id == current_id:
+                continue
+
+            if match_id in seen_ids:
+                continue
+
+            if not _finished_match_status(
+                match
+            ):
+                continue
+
+            if not _match_fits_team_venue(
+                match,
+                team_id,
+                venue
+            ):
+                continue
+
+            seen_ids.add(match_id)
+            result.append(match)
+
+            if len(result) >= limit:
+                break
 
     return result[:limit]
 
@@ -1195,7 +1438,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "TODAY-FIX-V6"
+        "version": "RECENT-SEASONS-V7"
     })
 
 
@@ -1683,7 +1926,7 @@ def build_analysis_payload(
 
     return {
         "source": "PITCHAPI",
-        "version": "TODAY-FIX-V6",
+        "version": "RECENT-SEASONS-V7",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -1848,7 +2091,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI",
-            "version": "TODAY-FIX-V6",
+            "version": "RECENT-SEASONS-V7",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
