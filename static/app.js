@@ -66,6 +66,14 @@ function formatStat(value) {
 }
 
 
+function clamp(value, min, max) {
+  return Math.min(
+    max,
+    Math.max(min, value)
+  );
+}
+
+
 /* ======================================================
    TIMES / ESCUDOS
 ====================================================== */
@@ -330,30 +338,33 @@ function strengthLabel(rate) {
 
 
 /* ======================================================
-   IDENTIFICAR TIPO DA ESTATÍSTICA
+   IDENTIFICAR MÉTRICA
 ====================================================== */
 
 function metricKey(label) {
   const text = String(label || "")
     .toLowerCase();
 
-  if (text.includes("gol")) {
-    return "goals";
-  }
-
-  if (text.includes("escanteio")) {
-    return "corners";
-  }
-
-  if (text.includes("finaliza")) {
-    return "shots";
-  }
+  /*
+    IMPORTANTE:
+    chutes no gol precisa vir antes
+    de "gol", porque a frase contém
+    a palavra gol.
+  */
 
   if (
     text.includes("chutes no gol") ||
     text.includes("chute no gol")
   ) {
     return "sot";
+  }
+
+  if (text.includes("finaliza")) {
+    return "shots";
+  }
+
+  if (text.includes("escanteio")) {
+    return "corners";
   }
 
   if (text.includes("cart")) {
@@ -364,14 +375,16 @@ function metricKey(label) {
     return "fouls";
   }
 
+  if (text.includes("gol")) {
+    return "goals";
+  }
+
   return text;
 }
 
 
 /* ======================================================
    PEGAR VALOR DA LINHA
-   Exemplo:
-   +3.5 Chutes no gol -> 3.5
 ====================================================== */
 
 function lineThreshold(label) {
@@ -389,16 +402,193 @@ function lineThreshold(label) {
 
 
 /* ======================================================
-   ESCOLHER MELHOR LINHA DE CADA MÉTRICA
+   PEGAR MÉDIA DA EQUIPE
+====================================================== */
 
-   Regras:
-   1 - precisa ter 80% ou mais
-   2 - maior porcentagem vence
-   3 - se porcentagem empatar,
-       linha mais alta vence
+function getTeamAverage(
+  data,
+  side,
+  metric
+) {
+  const labelMap = {
+    goals: "gols",
+    corners: "escanteios",
+    shots: "finalizações",
+    sot: "chutes no gol",
+    cards: "cartões",
+    fouls: "faltas"
+  };
+
+  const wanted =
+    labelMap[metric];
+
+  if (!wanted) {
+    return null;
+  }
+
+  const row =
+    (data.stats || []).find(
+      stat =>
+        String(stat.label || "")
+          .toLowerCase()
+          .includes(wanted)
+    );
+
+  if (!row) {
+    return null;
+  }
+
+  const value =
+    side === "home"
+      ? row.home
+      : row.away;
+
+  const num = Number(value);
+
+  if (Number.isNaN(num)) {
+    return null;
+  }
+
+  return num;
+}
+
+
+/* ======================================================
+   NOTA DA MÉDIA
+
+   Exemplo:
+   linha +9.5 significa que
+   precisamos de pelo menos 10.
+
+   Quanto mais a média ficar
+   acima disso, melhor.
+====================================================== */
+
+function averageStrength(
+  average,
+  threshold
+) {
+  if (
+    average === null ||
+    average === undefined
+  ) {
+    return 0.5;
+  }
+
+  const required =
+    threshold + 0.5;
+
+  if (required <= 0) {
+    return 0.5;
+  }
+
+  const ratio =
+    average / required;
+
+  /*
+    Média exatamente na linha:
+    nota intermediária.
+
+    Média 30% ou mais acima:
+    nota máxima nesta parte.
+  */
+
+  if (ratio >= 1) {
+    return clamp(
+      0.65 +
+      ((ratio - 1) / 0.30) * 0.35,
+      0.65,
+      1
+    );
+  }
+
+  return clamp(
+    ratio * 0.65,
+    0,
+    0.65
+  );
+}
+
+
+/* ======================================================
+   CALCULAR CONFIANÇA
+
+   PESOS:
+
+   65% = taxa histórica
+   20% = tamanho da amostra
+   15% = média comparada à linha
+
+   NÃO É PROBABILIDADE.
+====================================================== */
+
+function calculateConfidence(
+  rate,
+  games,
+  average,
+  threshold
+) {
+  const historyScore =
+    clamp(
+      Number(rate) / 100,
+      0,
+      1
+    );
+
+  const sampleScore =
+    clamp(
+      Number(games) / 10,
+      0,
+      1
+    );
+
+  const avgScore =
+    averageStrength(
+      average,
+      threshold
+    );
+
+  const total =
+    (
+      historyScore * 0.65 +
+      sampleScore * 0.20 +
+      avgScore * 0.15
+    ) * 10;
+
+  return Number(
+    total.toFixed(1)
+  );
+}
+
+
+/* ======================================================
+   TEXTO DA CONFIANÇA
+====================================================== */
+
+function confidenceLabel(score) {
+  if (score >= 9) {
+    return "Confiança muito alta";
+  }
+
+  if (score >= 8) {
+    return "Confiança alta";
+  }
+
+  if (score >= 7) {
+    return "Confiança moderada";
+  }
+
+  return "Confiança baixa";
+}
+
+
+/* ======================================================
+   ESCOLHER 1 LINHA POR MÉTRICA
 ====================================================== */
 
 function chooseBestTeamLines(
+  data,
+  side,
   teamName,
   lines
 ) {
@@ -417,15 +607,35 @@ function chooseBestTeamLines(
     const metric =
       metricKey(line.label);
 
+    const threshold =
+      lineThreshold(line.label);
+
+    const avg =
+      getTeamAverage(
+        data,
+        side,
+        metric
+      );
+
+    const confidence =
+      calculateConfidence(
+        line.rate,
+        line.games,
+        avg,
+        threshold
+      );
+
     const candidate = {
       team: teamName,
-      metric: metric,
+      side,
+      metric,
       label: line.label,
-      threshold:
-        lineThreshold(line.label),
+      threshold,
       rate: Number(line.rate),
       hits: Number(line.hits),
-      games: Number(line.games)
+      games: Number(line.games),
+      average: avg,
+      confidence
     };
 
     const current =
@@ -437,8 +647,10 @@ function chooseBestTeamLines(
     }
 
     /*
-      Maior taxa histórica
+      Primeiro:
+      maior aproveitamento.
     */
+
     if (
       candidate.rate >
       current.rate
@@ -448,9 +660,10 @@ function chooseBestTeamLines(
     }
 
     /*
-      Se a taxa for igual,
-      usa a linha mais alta.
+      Se porcentagem empatar:
+      linha mais alta.
     */
+
     if (
       candidate.rate ===
         current.rate &&
@@ -487,12 +700,16 @@ function getBestOpportunities(data) {
 
   const homeBest =
     chooseBestTeamLines(
+      data,
+      "home",
       homeName,
       homeLines
     );
 
   const awayBest =
     chooseBestTeamLines(
+      data,
+      "away",
       awayName,
       awayLines
     );
@@ -502,35 +719,32 @@ function getBestOpportunities(data) {
     ...awayBest
   ];
 
+  /*
+    Agora ordenamos pela
+    NOTA DE CONFIANÇA.
+  */
+
   opportunities.sort(
     (a, b) => {
 
-      /*
-        Primeiro maior porcentagem.
-      */
+      if (
+        b.confidence !==
+        a.confidence
+      ) {
+        return (
+          b.confidence -
+          a.confidence
+        );
+      }
+
       if (b.rate !== a.rate) {
         return b.rate - a.rate;
       }
 
-      /*
-        Depois maior quantidade
-        de jogos analisados.
-      */
       if (b.games !== a.games) {
         return b.games - a.games;
       }
 
-      /*
-        Depois maior número
-        de acertos.
-      */
-      if (b.hits !== a.hits) {
-        return b.hits - a.hits;
-      }
-
-      /*
-        Por último linha maior.
-      */
       return (
         b.threshold -
         a.threshold
@@ -570,6 +784,7 @@ function renderBestOpportunities(data) {
     box.style.marginTop = "16px";
 
     box.innerHTML = `
+
       <div class="section-head">
 
         <h2>
@@ -582,6 +797,7 @@ function renderBestOpportunities(data) {
 
       </div>
 
+
       <p
         class="muted"
         style="
@@ -589,13 +805,16 @@ function renderBestOpportunities(data) {
           margin-bottom:16px;
         "
       >
-        Melhor linha histórica
-        de cada estatística.
+        Melhor linha de cada
+        estatística, ordenada pela
+        nota de confiança.
       </p>
+
 
       <div
         id="bestOpportunities"
       ></div>
+
 
       <div
         style="
@@ -609,11 +828,14 @@ function renderBestOpportunities(data) {
           opacity:.75;
         "
       >
-        As porcentagens representam
-        apenas o histórico dos jogos
-        analisados. Não garantem que
-        a linha acontecerá novamente.
+        A nota de confiança combina
+        frequência histórica,
+        quantidade de jogos e média
+        da equipe. Ela não representa
+        probabilidade garantida de
+        acerto.
       </div>
+
     `;
 
     statsCard.insertAdjacentElement(
@@ -625,8 +847,10 @@ function renderBestOpportunities(data) {
       $("bestOpportunities");
   }
 
+
   const opportunities =
     getBestOpportunities(data);
+
 
   if (!opportunities.length) {
 
@@ -640,6 +864,7 @@ function renderBestOpportunities(data) {
 
     return;
   }
+
 
   container.innerHTML =
     opportunities
@@ -675,9 +900,30 @@ function renderBestOpportunities(data) {
                 ${item.team}
               </div>
 
+
               <strong>
                 ${item.label}
               </strong>
+
+
+              ${
+                item.average !== null
+
+                  ? `
+                    <small
+                      style="
+                        display:block;
+                        margin-top:6px;
+                        opacity:.7;
+                      "
+                    >
+                      Média:
+                      ${item.average.toFixed(2)}
+                    </small>
+                  `
+
+                  : ""
+              }
 
             </div>
 
@@ -700,6 +946,7 @@ function renderBestOpportunities(data) {
                 ${item.rate}%
               </strong>
 
+
               <small
                 style="
                   display:block;
@@ -717,16 +964,61 @@ function renderBestOpportunities(data) {
           </div>
 
 
-          <small
+          <div
             style="
-              display:block;
-              margin-top:8px;
-              opacity:.75;
+              margin-top:12px;
+              display:flex;
+              justify-content:
+              space-between;
+              align-items:center;
+              gap:12px;
+              padding-top:10px;
+              border-top:
+              1px solid
+              rgba(255,255,255,.07);
             "
           >
-            Bateu ${item.hits}
-            de ${item.games} jogos
-          </small>
+
+            <small
+              style="
+                opacity:.75;
+              "
+            >
+              Bateu ${item.hits}
+              de ${item.games} jogos
+            </small>
+
+
+            <div
+              style="
+                text-align:right;
+              "
+            >
+
+              <strong
+                style="
+                  font-size:17px;
+                  color:var(--green);
+                "
+              >
+                ${item.confidence}/10
+              </strong>
+
+              <small
+                style="
+                  display:block;
+                  opacity:.7;
+                  margin-top:2px;
+                "
+              >
+                ${confidenceLabel(
+                  item.confidence
+                )}
+              </small>
+
+            </div>
+
+          </div>
 
         </div>
 
@@ -748,12 +1040,14 @@ function renderTeamLines(
     return `
       <div class="safe-box">
         <strong>${teamName}</strong>
+
         <p>
           Sem dados suficientes.
         </p>
       </div>
     `;
   }
+
 
   return `
     <div
@@ -766,6 +1060,7 @@ function renderTeamLines(
       <strong>
         ${teamName}
       </strong>
+
 
       <div
         style="
@@ -820,6 +1115,7 @@ function renderTeamLines(
             `;
           }
 
+
           return `
             <div
               style="
@@ -861,6 +1157,7 @@ function renderTeamLines(
                 </strong>
 
               </div>
+
 
               <small
                 style="
@@ -907,6 +1204,7 @@ function renderLines(data) {
       awayUsed
     );
 
+
   if (!linesContainer) {
 
     const cards =
@@ -919,6 +1217,7 @@ function renderLines(data) {
     if (!automaticSection) {
       return;
     }
+
 
     automaticSection.innerHTML = `
 
@@ -973,11 +1272,13 @@ function renderLines(data) {
     }
   }
 
+
   const homeLines =
     data.lines?.home || [];
 
   const awayLines =
     data.lines?.away || [];
+
 
   linesContainer.innerHTML = `
 
@@ -1009,11 +1310,13 @@ async function loadAnalysis() {
     </div>
   `;
 
+
   try {
 
     const data = await getJSON(
       `/api/analysis/${currentFixture.id}?sample=${currentSample}`
     );
+
 
     $("sourceLabel").textContent =
       data.source || "Fonte";
