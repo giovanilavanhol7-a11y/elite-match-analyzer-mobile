@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request, send_from_directory
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 import requests
@@ -147,6 +147,30 @@ def match_date(value):
 
     except Exception:
         return ""
+
+
+def local_match_day(value):
+    if not value:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(
+            value.replace(
+                "Z",
+                "+00:00"
+            )
+        )
+
+        dt = dt.astimezone(
+            ZoneInfo(TIMEZONE)
+        )
+
+        return dt.strftime(
+            "%Y-%m-%d"
+        )
+
+    except Exception:
+        return None
 
 
 def normalize_name(value):
@@ -1899,6 +1923,7 @@ def health():
 
 # =========================================================
 # PARTIDAS DE HOJE
+# CORRIGIDO PARA O DIA REAL EM SÃO PAULO
 # =========================================================
 
 @app.get("/api/fixtures/today")
@@ -1906,27 +1931,172 @@ def fixtures_today():
 
     try:
 
-        today = datetime.now(
+        now_local = datetime.now(
             ZoneInfo(TIMEZONE)
+        )
+
+        today = now_local.strftime(
+            "%Y-%m-%d"
+        )
+
+        tomorrow = (
+            now_local
+            + timedelta(days=1)
         ).strftime(
             "%Y-%m-%d"
         )
 
-        data = api_get(
-            f"v1/date/{today}"
-        )
+        # A PitchAPI pode organizar partidas
+        # pela data UTC.
+        #
+        # Como São Paulo está atrás do UTC,
+        # partidas no fim da noite de hoje
+        # podem aparecer na data de amanhã
+        # dentro da API.
+        #
+        # Por isso buscamos HOJE + AMANHÃ
+        # e depois fazemos o filtro verdadeiro
+        # pelo horário de São Paulo.
+
+        dates_to_check = [
+            today,
+            tomorrow
+        ]
 
         matches = []
+        seen_ids = set()
 
-        if isinstance(
-            data,
-            dict
-        ):
+        for date_value in dates_to_check:
 
-            matches = (
+            try:
+
+                data = api_get(
+                    f"v1/date/{date_value}"
+                )
+
+            except Exception:
+
+                continue
+
+            if not isinstance(
+                data,
+                dict
+            ):
+                continue
+
+            api_matches = (
                 data.get("matches")
                 or []
             )
+
+            for match in api_matches:
+
+                match_id = (
+                    match.get("id")
+                )
+
+                if not match_id:
+                    continue
+
+                if match_id in seen_ids:
+                    continue
+
+                time_utc = (
+                    match.get(
+                        "time_utc"
+                    )
+                )
+
+                local_day = (
+                    local_match_day(
+                        time_utc
+                    )
+                )
+
+                # -----------------------------------------
+                # REGRA PRINCIPAL
+                #
+                # Se existe time_utc, a data usada é
+                # exclusivamente a data convertida para
+                # America/Sao_Paulo.
+                # -----------------------------------------
+
+                if local_day is not None:
+
+                    if local_day != today:
+                        continue
+
+                else:
+
+                    # -------------------------------------
+                    # FALLBACK
+                    #
+                    # Só usa "date" se a API realmente
+                    # não fornecer um time_utc válido.
+                    # -------------------------------------
+
+                    raw_date = clean_text(
+                        match.get("date")
+                    )
+
+                    if raw_date:
+
+                        raw_date = (
+                            raw_date[:10]
+                        )
+
+                        if raw_date != today:
+                            continue
+
+                    else:
+
+                        # Sem horário e sem data:
+                        # não é seguro afirmar que
+                        # a partida é de hoje.
+                        continue
+
+                seen_ids.add(
+                    match_id
+                )
+
+                matches.append(
+                    match
+                )
+
+        # Ordenar pelo horário real de São Paulo
+
+        def fixture_sort_key(match):
+
+            time_utc = (
+                match.get(
+                    "time_utc"
+                )
+            )
+
+            if not time_utc:
+                return (
+                    "99:99",
+                    str(
+                        match.get("id")
+                        or ""
+                    )
+                )
+
+            return (
+                match_time(
+                    time_utc
+                )
+                or "99:99",
+
+                str(
+                    match.get("id")
+                    or ""
+                )
+            )
+
+        matches.sort(
+            key=fixture_sort_key
+        )
 
         return jsonify({
             "mode":
@@ -1934,6 +2104,12 @@ def fixtures_today():
 
             "message":
                 "",
+
+            "date":
+                today,
+
+            "timezone":
+                TIMEZONE,
 
             "fixtures": [
                 normalize_match(
