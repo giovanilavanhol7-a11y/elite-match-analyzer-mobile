@@ -1624,6 +1624,132 @@ def prepare_samples_hybrid(pitch_fixture, fixture_id):
     return {"home_10":home10,"away_10":away10,"home_5":slice_team_data(home10,5),"away_5":slice_team_data(away10,5),"history_source":"5DOLLARFOOTBALLAPI"}
 
 
+@app.get("/api/debug/team-history")
+def debug_team_history():
+    """ Diagnóstico seguro do histórico da 5DollarFootballAPI. Não expõe nenhuma chave. Mostra apenas partidas e contagens. Exemplo: /api/debug/team-history?team_id=1767 """
+    team_id_raw = str(request.args.get("team_id", "")).strip()
+
+    if not team_id_raw.isdigit():
+        return jsonify({
+            "ok": False,
+            "error": "Informe team_id numérico."
+        }), 400
+
+    team_id = int(team_id_raw)
+
+    # Janela propositalmente ampla dentro do limite do plano Free:
+    # últimos 3 meses até agora.
+    now_ts = int(time.time())
+    start_ts = now_ts - (92 * 24 * 60 * 60)
+
+    try:
+        payload_all = football_data_get(
+            f"teams/{team_id}/fixtures",
+            params={
+                "status": "all",
+                "start_time": start_ts,
+                "end_time": now_ts + (7 * 24 * 60 * 60),
+                "per_page": 50,
+                "lang": "pt"
+            }
+        )
+
+        payload_finished = football_data_get(
+            f"teams/{team_id}/fixtures",
+            params={
+                "status": "finished",
+                "start_time": start_ts,
+                "end_time": now_ts,
+                "per_page": 50,
+                "lang": "pt"
+            }
+        )
+
+        all_rows = (
+            payload_all.get("data") or []
+            if isinstance(payload_all, dict)
+            else []
+        )
+        finished_rows = (
+            payload_finished.get("data") or []
+            if isinstance(payload_finished, dict)
+            else []
+        )
+
+        def compact(rows):
+            result = []
+
+            for fixture in rows:
+                if not isinstance(fixture, dict):
+                    continue
+
+                teams = fixture.get("teams") or {}
+                home = teams.get("home") or {}
+                away = teams.get("away") or {}
+                league = fixture.get("league") or {}
+
+                if home.get("id") == team_id:
+                    venue = "home"
+                elif away.get("id") == team_id:
+                    venue = "away"
+                else:
+                    venue = "unknown"
+
+                result.append({
+                    "id": fixture.get("id"),
+                    "kickoff_utc": fixture.get("kickoff_utc"),
+                    "status": fixture.get("status"),
+                    "league": league.get("name"),
+                    "home": home.get("name"),
+                    "away": away.get("name"),
+                    "venue_for_team": venue,
+                    "goals": fixture.get("goals"),
+                    "corners": fixture.get("corners"),
+                    "cards": fixture.get("cards")
+                })
+
+            return result
+
+        finished_compact = compact(finished_rows)
+
+        return jsonify({
+            "ok": True,
+            "configured": bool(FOOTBALL_DATA_KEY),
+            "team_id": team_id,
+            "window_days": 92,
+            "all_count": len(all_rows),
+            "finished_count": len(finished_rows),
+            "finished_home_count": len([
+                row for row in finished_compact
+                if row.get("venue_for_team") == "home"
+            ]),
+            "finished_away_count": len([
+                row for row in finished_compact
+                if row.get("venue_for_team") == "away"
+            ]),
+            "all": compact(all_rows),
+            "finished": finished_compact,
+            "pagination_all": (
+                payload_all.get("pagination")
+                if isinstance(payload_all, dict)
+                else None
+            ),
+            "pagination_finished": (
+                payload_finished.get("pagination")
+                if isinstance(payload_finished, dict)
+                else None
+            )
+        })
+
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "configured": bool(FOOTBALL_DATA_KEY),
+            "team_id": team_id,
+            "error": str(error)
+        }), 502
+
+
 # =========================================================
 # SITE
 # =========================================================
@@ -1648,7 +1774,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "HYBRID-TODAY-V12"
+        "version": "HYBRID-TODAY-V12.1-DIAG"
     })
 
 
@@ -2504,7 +2630,7 @@ def build_analysis_payload( fixture_id, sample ):
     return {
         "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
         "history_source": samples.get("history_source"),
-        "version": "HYBRID-TODAY-V12",
+        "version": "HYBRID-TODAY-V12.1-DIAG",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -2669,7 +2795,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI + 5DOLLARFOOTBALLAPI",
-            "version": "HYBRID-TODAY-V12",
+            "version": "HYBRID-TODAY-V12.1-DIAG",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
