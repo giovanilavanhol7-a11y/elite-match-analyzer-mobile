@@ -4118,4 +4118,144 @@ async function loadAnalysis() {
               )}
             </div>
 
-            <div class="stat
+            <div class="stat-label">
+              ${s.label}
+            </div>
+
+            <div class="stat-value">
+              ${formatStat(
+                s.away
+              )}
+            </div>
+
+          </div>
+
+        `)
+        .join("") ||
+
+      `
+
+        <div class="empty">
+          Sem estatísticas disponíveis.
+        </div>
+
+      `;
+
+    renderMatchContext(
+      data
+    );
+
+    renderH2H(
+      data
+    );
+
+    renderBestOpportunities(
+      data
+    );
+
+    renderLines(
+      data
+    );
+
+  } catch (error) {
+
+    $("statsList").innerHTML = `
+
+      <div class="empty error">
+        ${error.message}
+      </div>
+
+    `;
+
+  }
+}
+
+
+/* ======================================================
+   ATUALIZAR
+====================================================== */
+
+$("refreshBtn")
+  .addEventListener(
+    "click",
+    loadFixtures
+  );
+
+
+/* ======================================================
+   VOLTAR
+====================================================== */
+
+$("backBtn")
+  .addEventListener(
+    "click",
+    () => {
+
+      currentFixture = null;
+
+      analysisPanel.classList.add(
+        "hidden"
+      );
+
+      const intro =
+        document.querySelector(
+          ".intro"
+        );
+
+      if (intro) {
+        intro.classList.remove(
+          "hidden"
+        );
+      }
+
+      fixturesEl.classList.remove(
+        "hidden"
+      );
+
+    }
+  );
+
+
+/* ======================================================
+   ÚLTIMOS 5 / 10
+====================================================== */
+
+document
+  .querySelectorAll(".tab")
+  .forEach(btn => {
+
+    btn.addEventListener(
+      "click",
+      async () => {
+
+        currentSample =
+          Number(
+            btn.dataset.sample
+          );
+
+        document
+          .querySelectorAll(".tab")
+          .forEach(b => {
+
+            b.classList.toggle(
+              "active",
+              b === btn
+            );
+
+          });
+
+        if (currentFixture) {
+          await loadAnalysis();
+        }
+
+      }
+    );
+
+  });
+
+
+/* ======================================================
+   INICIAR
+====================================================== */
+
+loadFixtures();
