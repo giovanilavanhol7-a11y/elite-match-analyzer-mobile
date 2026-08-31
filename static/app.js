@@ -28,16 +28,7 @@ const TREND_PENALTY_DOWN = -0.4;
 
 
 /* ======================================================
-   BÔNUS PEQUENO POR DIFICULDADE DA LINHA
-
-   IMPORTANTE:
-
-   Isso NÃO faz uma linha reprovada virar aprovada.
-
-   O bônus só entra no ranking DEPOIS
-   que a linha já passou pelos filtros.
-
-   Máximo usado atualmente: +0.2
+   BÔNUS DE DIFICULDADE
 ====================================================== */
 
 const LINE_DIFFICULTY_BONUS = {
@@ -162,6 +153,210 @@ function clamp(value, min, max) {
     max,
     Math.max(min, value)
   );
+}
+
+
+/* ======================================================
+   CONTEXTO DA PARTIDA
+====================================================== */
+
+function renderMatchContext(data) {
+  let contextCard =
+    $("matchContextCard");
+
+  const info =
+    data.match_info || {};
+
+  const referee =
+    info.referee || "Não informado";
+
+  const stadium =
+    info.stadium || "Não informado";
+
+  const round =
+    info.round || "Não informada";
+
+  const time =
+    info.time || currentFixture?.time || "—";
+
+  const status =
+    info.status || currentFixture?.status || "—";
+
+  if (!contextCard) {
+    const statsCard =
+      analysisPanel
+        .querySelector(".card");
+
+    if (!statsCard) {
+      return;
+    }
+
+    contextCard =
+      document.createElement("div");
+
+    contextCard.id =
+      "matchContextCard";
+
+    contextCard.className =
+      "card";
+
+    contextCard.style.marginBottom =
+      "16px";
+
+    statsCard.insertAdjacentElement(
+      "beforebegin",
+      contextCard
+    );
+  }
+
+  contextCard.innerHTML = `
+
+    <div class="section-head">
+
+      <h2>
+        Contexto da partida
+      </h2>
+
+      <span>
+        DADOS DA PITCHAPI
+      </span>
+
+    </div>
+
+    <div
+      style="
+        display:grid;
+        gap:10px;
+        margin-top:12px;
+      "
+    >
+
+      <div
+        style="
+          padding:12px;
+          border-radius:11px;
+          background:rgba(255,255,255,.04);
+        "
+      >
+
+        <div
+          style="
+            font-size:11px;
+            opacity:.65;
+            margin-bottom:4px;
+          "
+        >
+          👨‍⚖️ Árbitro
+        </div>
+
+        <strong>
+          ${referee}
+        </strong>
+
+      </div>
+
+      <div
+        style="
+          padding:12px;
+          border-radius:11px;
+          background:rgba(255,255,255,.04);
+        "
+      >
+
+        <div
+          style="
+            font-size:11px;
+            opacity:.65;
+            margin-bottom:4px;
+          "
+        >
+          🏟️ Estádio
+        </div>
+
+        <strong>
+          ${stadium}
+        </strong>
+
+      </div>
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:8px;
+        "
+      >
+
+        <div
+          style="
+            padding:11px;
+            border-radius:10px;
+            background:rgba(255,255,255,.04);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:4px;
+            "
+          >
+            Rodada
+          </div>
+
+          <strong>
+            ${round}
+          </strong>
+
+        </div>
+
+        <div
+          style="
+            padding:11px;
+            border-radius:10px;
+            background:rgba(255,255,255,.04);
+          "
+        >
+
+          <div
+            style="
+              font-size:11px;
+              opacity:.65;
+              margin-bottom:4px;
+            "
+          >
+            Horário
+          </div>
+
+          <strong>
+            ${time}
+          </strong>
+
+        </div>
+
+      </div>
+
+      <div
+        style="
+          padding:10px 12px;
+          border-radius:10px;
+          background:rgba(255,255,255,.03);
+          font-size:12px;
+          opacity:.75;
+        "
+      >
+
+        Status:
+        <strong>
+          ${status}
+        </strong>
+
+      </div>
+
+    </div>
+
+  `;
 }
 
 
@@ -522,7 +717,7 @@ function lineThreshold(label) {
 
 
 /* ======================================================
-   BÔNUS DE DIFICULDADE
+   BÔNUS DA LINHA
 ====================================================== */
 
 function difficultyAdjustment(
@@ -737,10 +932,6 @@ function trendAdjustment(trendName) {
 
 /* ======================================================
    ÍNDICE FINAL
-
-   BASE
-   + TENDÊNCIA
-   + PEQUENO BÔNUS DA LINHA
 ====================================================== */
 
 function rankingIndex(
@@ -1739,12 +1930,6 @@ function passesRecentPrimaryFilter(
 
 /* ======================================================
    CANDIDATOS DA SUGESTÃO PRINCIPAL
-
-   1. Passa nos 10.
-   2. Passa nos 5.
-   3. Não enfraquece.
-   4. Tem amostra suficiente.
-   5. Só depois escolhe a maior linha.
 ====================================================== */
 
 function primaryCandidates(data) {
@@ -2004,7 +2189,7 @@ function primarySuggestionCard(
               opacity:.7;
             "
           >
-            MAIOR LINHA SEGURA APROVADA
+            MAIOR LINHA APROVADA PELOS FILTROS
           </div>
 
         </div>
@@ -2035,9 +2220,7 @@ function primarySuggestionCard(
               margin-top:3px;
             "
           >
-
             índice ajustado
-
           </div>
 
         </div>
@@ -2267,12 +2450,12 @@ function primarySuggestionCard(
         Últimos 5.
 
         Depois o sistema prioriza a
-        maior linha aprovada e aplica
-        apenas um pequeno bônus de
-        dificuldade no ranking.
+        maior linha da mesma métrica
+        que continua aprovada pelos
+        filtros.
 
-        O bônus nunca transforma uma
-        linha reprovada em aprovada.
+        O bônus de dificuldade serve
+        apenas para ordenar o ranking.
 
         Os dados são históricos e não
         garantem o resultado da partida.
@@ -2793,11 +2976,19 @@ function renderBestOpportunities(data) {
 
   if (!container) {
 
-    const statsCard =
+    const cards =
       analysisPanel
         .querySelectorAll(
           ".card"
-        )[1];
+        );
+
+    const statsCard =
+      Array.from(cards).find(
+        card =>
+          card.querySelector(
+            "#statsList"
+          )
+      ) || cards[0];
 
     if (!statsCard) {
       return;
@@ -2876,10 +3067,6 @@ function renderBestOpportunities(data) {
         nos Últimos 5, ter amostra
         recente suficiente e não pode
         estar enfraquecendo.
-
-        O bônus da linha é pequeno e
-        serve somente para melhorar
-        a ordem do ranking.
 
         Os indicadores são históricos
         e não representam garantia
@@ -3496,6 +3683,10 @@ async function loadAnalysis() {
         </div>
 
       `;
+
+    renderMatchContext(
+      data
+    );
 
     renderBestOpportunities(
       data
