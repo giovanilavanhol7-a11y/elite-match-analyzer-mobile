@@ -118,7 +118,7 @@ def normalize_name(value):
 
 
 # =========================================================
-# NORMALIZAR JOGO
+# NORMALIZAR PARTIDA
 # =========================================================
 
 def normalize_match(match):
@@ -179,7 +179,7 @@ def normalize_match(match):
 
 
 # =========================================================
-# ESTATÍSTICAS
+# ESTATÍSTICAS OFICIAIS
 # =========================================================
 
 def get_stats(match_id):
@@ -263,10 +263,7 @@ def find_exact_stat(
 # FINALIZAÇÕES
 # =========================================================
 
-def shot_events(
-    match_id,
-    team_id
-):
+def shot_events(match_id, team_id):
     try:
         data = api_get(
             f"v1/matches/{match_id}/shots"
@@ -305,10 +302,7 @@ def shot_events(
 # CHUTES NO GOL
 # =========================================================
 
-def sot_from_shots(
-    match_id,
-    team_id
-):
+def sot_from_shots(match_id, team_id):
     try:
         data = api_get(
             f"v1/matches/{match_id}/shots"
@@ -366,10 +360,7 @@ def sot_from_shots(
 # CARTÕES
 # =========================================================
 
-def get_cards(
-    match_id,
-    team_id
-):
+def get_cards(match_id, team_id):
     try:
         data = api_get(
             f"v1/matches/{match_id}/events"
@@ -416,14 +407,18 @@ def get_cards(
 
 
 # =========================================================
-# JOGOS RECENTES
+# ÚLTIMOS JOGOS
+#
+# venue = "home" -> somente jogos em casa
+# venue = "away" -> somente jogos fora
 # =========================================================
 
 def recent_matches(
     league_id,
     team_id,
     current_id,
-    limit
+    limit,
+    venue
 ):
     try:
         data = api_get(
@@ -450,11 +445,27 @@ def recent_matches(
             "away_team"
         ) or {}
 
-        if (
-            home.get("id") != team_id
-            and away.get("id") != team_id
-        ):
-            continue
+        # ==========================================
+        # FILTRO REAL CASA / FORA
+        # ==========================================
+
+        if venue == "home":
+
+            if home.get("id") != team_id:
+                continue
+
+        elif venue == "away":
+
+            if away.get("id") != team_id:
+                continue
+
+        else:
+
+            if (
+                home.get("id") != team_id
+                and away.get("id") != team_id
+            ):
+                continue
 
         status = (
             str(
@@ -492,13 +503,10 @@ def recent_matches(
 
 
 # =========================================================
-# DADOS DE UM JOGO
+# DADOS DE UMA PARTIDA
 # =========================================================
 
-def team_match_values(
-    match,
-    team_id
-):
+def team_match_values(match, team_id):
     match_id = match.get("id")
 
     home = match.get(
@@ -518,9 +526,7 @@ def team_match_values(
             match.get("score_away")
         )
 
-    stats = get_stats(
-        match_id
-    )
+    stats = get_stats(match_id)
 
     corners = find_exact_stat(
         stats,
@@ -589,20 +595,22 @@ def team_match_values(
 
 
 # =========================================================
-# MÉDIA + HISTÓRICO
+# MÉDIA DO TIME
 # =========================================================
 
 def team_average(
     league_id,
     team_id,
     current_id,
-    limit
+    limit,
+    venue
 ):
     matches = recent_matches(
         league_id,
         team_id,
         current_id,
-        limit
+        limit,
+        venue
     )
 
     values = {
@@ -655,6 +663,8 @@ def team_average(
     return {
         "matches_used": len(matches),
 
+        "venue": venue,
+
         "averages": {
             key: average(value)
             for key, value
@@ -678,7 +688,7 @@ def team_average(
 
 
 # =========================================================
-# CONTAGEM DE LINHAS
+# CONTAGEM DAS LINHAS
 # =========================================================
 
 def line_result(
@@ -719,7 +729,6 @@ def line_result(
 
 
 def build_lines(team_data):
-
     values = team_data["values"]
 
     return [
@@ -837,12 +846,12 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "LINES-V1"
+        "version": "HOME-AWAY-V1"
     })
 
 
 # =========================================================
-# JOGOS DE HOJE
+# PARTIDAS DE HOJE
 # =========================================================
 
 @app.get("/api/fixtures/today")
@@ -933,34 +942,36 @@ def analysis(fixture_id):
         home_id = home.get("id")
         away_id = away.get("id")
 
+        # ==========================================
+        # MANDANTE = SOMENTE JOGOS EM CASA
+        # ==========================================
+
         home_data = team_average(
             league_id,
             home_id,
             fixture_id,
-            sample
+            sample,
+            "home"
         )
+
+        # ==========================================
+        # VISITANTE = SOMENTE JOGOS FORA
+        # ==========================================
 
         away_data = team_average(
             league_id,
             away_id,
             fixture_id,
-            sample
+            sample,
+            "away"
         )
 
         h = home_data["averages"]
         a = away_data["averages"]
 
-        home_lines = build_lines(
-            home_data
-        )
-
-        away_lines = build_lines(
-            away_data
-        )
-
         return jsonify({
             "source": "PITCHAPI",
-            "version": "LINES-V1",
+            "version": "HOME-AWAY-V1",
             "sample_size": sample,
 
             "home": {
@@ -975,6 +986,8 @@ def analysis(fixture_id):
                     "image_url",
                     ""
                 ),
+
+                "venue": "home",
 
                 "matches_used":
                     home_data[
@@ -999,6 +1012,8 @@ def analysis(fixture_id):
                     "image_url",
                     ""
                 ),
+
+                "venue": "away",
 
                 "matches_used":
                     away_data[
@@ -1050,8 +1065,13 @@ def analysis(fixture_id):
             ],
 
             "lines": {
-                "home": home_lines,
-                "away": away_lines
+                "home": build_lines(
+                    home_data
+                ),
+
+                "away": build_lines(
+                    away_data
+                )
             }
         })
 
@@ -1059,7 +1079,7 @@ def analysis(fixture_id):
 
         return jsonify({
             "source": "PITCHAPI",
-            "version": "LINES-V1",
+            "version": "HOME-AWAY-V1",
             "sample_size": sample,
             "stats": [],
             "lines": {},
@@ -1078,17 +1098,17 @@ def lines(fixture_id):
         sample = int(
             request.args.get(
                 "sample",
-                5
+                10
             )
         )
     except Exception:
-        sample = 5
+        sample = 10
 
     if sample not in (
         5,
         10
     ):
-        sample = 5
+        sample = 10
 
     try:
         fixture = api_get(
@@ -1113,14 +1133,16 @@ def lines(fixture_id):
             league_id,
             home.get("id"),
             fixture_id,
-            sample
+            sample,
+            "home"
         )
 
         away_data = team_average(
             league_id,
             away.get("id"),
             fixture_id,
-            sample
+            sample,
+            "away"
         )
 
         return jsonify({
@@ -1132,6 +1154,13 @@ def lines(fixture_id):
                     "Mandante"
                 ),
 
+                "venue": "home",
+
+                "matches_used":
+                    home_data[
+                        "matches_used"
+                    ],
+
                 "lines": build_lines(
                     home_data
                 )
@@ -1142,6 +1171,13 @@ def lines(fixture_id):
                     "name",
                     "Visitante"
                 ),
+
+                "venue": "away",
+
+                "matches_used":
+                    away_data[
+                        "matches_used"
+                    ],
 
                 "lines": build_lines(
                     away_data
