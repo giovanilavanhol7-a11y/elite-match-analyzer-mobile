@@ -125,6 +125,30 @@ def match_time(value):
         return ""
 
 
+def match_date(value):
+    if not value:
+        return ""
+
+    try:
+        dt = datetime.fromisoformat(
+            value.replace(
+                "Z",
+                "+00:00"
+            )
+        )
+
+        dt = dt.astimezone(
+            ZoneInfo(TIMEZONE)
+        )
+
+        return dt.strftime(
+            "%d/%m/%Y"
+        )
+
+    except Exception:
+        return ""
+
+
 def normalize_name(value):
     return (
         str(value)
@@ -139,9 +163,7 @@ def clean_text(value):
     if value is None:
         return ""
 
-    text = str(value).strip()
-
-    return text
+    return str(value).strip()
 
 
 # =========================================================
@@ -191,6 +213,203 @@ def build_match_context(fixture):
 
         "status":
             status or None
+    }
+
+
+# =========================================================
+# H2H
+# =========================================================
+
+def get_h2h(fixture_id):
+    try:
+        data = api_get(
+            f"v1/matches/"
+            f"{fixture_id}/h2h"
+        )
+
+    except Exception:
+        return {
+            "available": False,
+            "total_matches": 0,
+            "home_wins": 0,
+            "draws": 0,
+            "away_wins": 0,
+            "recent_matches": []
+        }
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        return {
+            "available": False,
+            "total_matches": 0,
+            "home_wins": 0,
+            "draws": 0,
+            "away_wins": 0,
+            "recent_matches": []
+        }
+
+    recent = []
+
+    for match in (
+        data.get("recent_matches")
+        or []
+    ):
+
+        if not match.get(
+            "finished",
+            False
+        ):
+            continue
+
+        home = (
+            match.get("home")
+            or {}
+        )
+
+        away = (
+            match.get("away")
+            or {}
+        )
+
+        score_home = number(
+            match.get("score_home")
+        )
+
+        score_away = number(
+            match.get("score_away")
+        )
+
+        if (
+            score_home is None
+            or
+            score_away is None
+        ):
+            continue
+
+        recent.append({
+            "date":
+                match_date(
+                    match.get(
+                        "time_utc"
+                    )
+                ),
+
+            "time_utc":
+                match.get(
+                    "time_utc"
+                ),
+
+            "home": {
+                "id":
+                    home.get("id"),
+
+                "name":
+                    home.get(
+                        "name",
+                        "Mandante"
+                    )
+            },
+
+            "away": {
+                "id":
+                    away.get("id"),
+
+                "name":
+                    away.get(
+                        "name",
+                        "Visitante"
+                    )
+            },
+
+            "score_home":
+                int(score_home),
+
+            "score_away":
+                int(score_away),
+
+            "finished":
+                True
+        })
+
+    recent.sort(
+        key=lambda x: (
+            x.get("time_utc")
+            or ""
+        ),
+        reverse=True
+    )
+
+    home_team = (
+        data.get("home_team")
+        or {}
+    )
+
+    away_team = (
+        data.get("away_team")
+        or {}
+    )
+
+    return {
+        "available": True,
+
+        "home_team": {
+            "id":
+                home_team.get("id"),
+
+            "name":
+                home_team.get(
+                    "name",
+                    "Mandante"
+                )
+        },
+
+        "away_team": {
+            "id":
+                away_team.get("id"),
+
+            "name":
+                away_team.get(
+                    "name",
+                    "Visitante"
+                )
+        },
+
+        "total_matches":
+            int(
+                data.get(
+                    "total_matches"
+                )
+                or 0
+            ),
+
+        "home_wins":
+            int(
+                data.get(
+                    "home_wins"
+                )
+                or 0
+            ),
+
+        "draws":
+            int(
+                data.get(
+                    "draws"
+                )
+                or 0
+            ),
+
+        "away_wins":
+            int(
+                data.get(
+                    "away_wins"
+                )
+                or 0
+            ),
+
+        "recent_matches":
+            recent[:10]
     }
 
 
@@ -1674,7 +1893,7 @@ def health():
             TIMEZONE,
 
         "version":
-            "MATCH-CONTEXT-V1"
+            "H2H-V1"
     })
 
 
@@ -1869,6 +2088,10 @@ def analysis(fixture_id):
             )
         )
 
+        h2h = get_h2h(
+            fixture_id
+        )
+
         samples = prepare_samples(
             league_id,
             home_id,
@@ -1936,39 +2159,17 @@ def analysis(fixture_id):
 
         if sample == 5:
 
-            home_data = (
-                home_5
-            )
-
-            away_data = (
-                away_5
-            )
-
-            home_cross = (
-                home_cross_5
-            )
-
-            away_cross = (
-                away_cross_5
-            )
+            home_data = home_5
+            away_data = away_5
+            home_cross = home_cross_5
+            away_cross = away_cross_5
 
         else:
 
-            home_data = (
-                home_10
-            )
-
-            away_data = (
-                away_10
-            )
-
-            home_cross = (
-                home_cross_10
-            )
-
-            away_cross = (
-                away_cross_10
-            )
+            home_data = home_10
+            away_data = away_10
+            home_cross = home_cross_10
+            away_cross = away_cross_10
 
         h = (
             home_data[
@@ -1999,13 +2200,16 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "MATCH-CONTEXT-V1",
+                "H2H-V1",
 
             "sample_size":
                 sample,
 
             "match_info":
                 match_context,
+
+            "h2h":
+                h2h,
 
             "home": {
                 "id":
@@ -2282,13 +2486,33 @@ def analysis(fixture_id):
                 "PITCHAPI",
 
             "version":
-                "MATCH-CONTEXT-V1",
+                "H2H-V1",
 
             "sample_size":
                 sample,
 
             "match_info":
                 {},
+
+            "h2h": {
+                "available":
+                    False,
+
+                "total_matches":
+                    0,
+
+                "home_wins":
+                    0,
+
+                "draws":
+                    0,
+
+                "away_wins":
+                    0,
+
+                "recent_matches":
+                    []
+            },
 
             "stats":
                 [],
@@ -2391,6 +2615,10 @@ def lines(fixture_id):
             )
         )
 
+        h2h = get_h2h(
+            fixture_id
+        )
+
         samples = prepare_samples(
             league_id,
             home_id,
@@ -2466,49 +2694,30 @@ def lines(fixture_id):
 
         if sample == 5:
 
-            home_data = (
-                home_5
-            )
-
-            away_data = (
-                away_5
-            )
-
-            home_cross = (
-                home_cross_5
-            )
-
-            away_cross = (
-                away_cross_5
-            )
+            home_data = home_5
+            away_data = away_5
+            home_cross = home_cross_5
+            away_cross = away_cross_5
 
         else:
 
-            home_data = (
-                home_10
-            )
-
-            away_data = (
-                away_10
-            )
-
-            home_cross = (
-                home_cross_10
-            )
-
-            away_cross = (
-                away_cross_10
-            )
+            home_data = home_10
+            away_data = away_10
+            home_cross = home_cross_10
+            away_cross = away_cross_10
 
         return jsonify({
             "sample_size":
                 sample,
 
             "version":
-                "MATCH-CONTEXT-V1",
+                "H2H-V1",
 
             "match_info":
                 match_context,
+
+            "h2h":
+                h2h,
 
             "home": {
                 "name":
