@@ -24,7 +24,10 @@ function initials(name) {
 
 function showNotice(text) {
   notice.textContent = text;
-  notice.classList.toggle("hidden", !text);
+  notice.classList.toggle(
+    "hidden",
+    !text
+  );
 }
 
 
@@ -63,6 +66,18 @@ function formatStat(value) {
   }
 
   return num.toFixed(2);
+}
+
+
+function formatRate(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "Sem dados";
+  }
+
+  return `${Number(value).toFixed(1)}%`;
 }
 
 
@@ -111,57 +126,66 @@ function renderFixtures(items) {
     return;
   }
 
-  fixturesEl.innerHTML = items.map(f => `
-    <button
-      class="fixture"
-      data-id="${f.id}"
-    >
-      <div class="fixture-top">
+  fixturesEl.innerHTML =
+    items.map(f => `
+      <button
+        class="fixture"
+        data-id="${f.id}"
+      >
+        <div class="fixture-top">
 
-        <span class="fixture-league">
-          ${f.league}
-        </span>
+          <span class="fixture-league">
+            ${f.league}
+          </span>
 
-        <span class="fixture-time">
-          ${f.time || f.status || "—"}
-        </span>
+          <span class="fixture-time">
+            ${f.time || f.status || "—"}
+          </span>
 
-      </div>
-
-      <div class="fixture-teams">
-
-        <div class="mini-team">
-          ${teamIcon(f.home)}
-          <strong>${f.home.name}</strong>
         </div>
 
-        <span class="fixture-vs">
-          x
-        </span>
+        <div class="fixture-teams">
 
-        <div class="mini-team">
-          <strong>${f.away.name}</strong>
-          ${teamIcon(f.away)}
+          <div class="mini-team">
+            ${teamIcon(f.home)}
+            <strong>
+              ${f.home.name}
+            </strong>
+          </div>
+
+          <span class="fixture-vs">
+            x
+          </span>
+
+          <div class="mini-team">
+            <strong>
+              ${f.away.name}
+            </strong>
+            ${teamIcon(f.away)}
+          </div>
+
         </div>
-
-      </div>
-    </button>
-  `).join("");
+      </button>
+    `).join("");
 
   document
     .querySelectorAll(".fixture")
     .forEach(btn => {
 
-      btn.addEventListener("click", () => {
+      btn.addEventListener(
+        "click",
+        () => {
 
-        const item = items.find(
-          x =>
-            String(x.id) ===
-            btn.dataset.id
-        );
+          const item =
+            items.find(
+              x =>
+                String(x.id) ===
+                btn.dataset.id
+            );
 
-        openAnalysis(item);
-      });
+          openAnalysis(item);
+        }
+      );
 
     });
 }
@@ -176,9 +200,10 @@ async function loadFixtures() {
 
   try {
 
-    const health = await getJSON(
-      "/api/health"
-    );
+    const health =
+      await getJSON(
+        "/api/health"
+      );
 
     $("modeBadge").textContent =
       health.api_configured &&
@@ -192,17 +217,22 @@ async function loadFixtures() {
         ? "var(--green)"
         : "var(--amber)";
 
-    const data = await getJSON(
-      "/api/fixtures/today"
-    );
+
+    const data =
+      await getJSON(
+        "/api/fixtures/today"
+      );
+
 
     showNotice(
       data.message || ""
     );
 
+
     renderFixtures(
       data.fixtures || []
     );
+
 
     $("todayLabel").textContent =
       new Intl.DateTimeFormat(
@@ -276,7 +306,9 @@ async function openAnalysis(fixture) {
 
   document
     .querySelector(".intro")
-    .classList.add("hidden");
+    .classList.add(
+      "hidden"
+    );
 
   showNotice("");
 
@@ -304,11 +336,14 @@ async function openAnalysis(fixture) {
 
 
 /* ======================================================
-   CORES / FORÇA
+   CORES
 ====================================================== */
 
 function lineColor(rate) {
-  if (rate === null) {
+  if (
+    rate === null ||
+    rate === undefined
+  ) {
     return "var(--muted)";
   }
 
@@ -324,363 +359,264 @@ function lineColor(rate) {
 }
 
 
-function strengthLabel(rate) {
-  if (rate >= 90) {
-    return "Muito forte";
-  }
-
-  if (rate >= 80) {
-    return "Forte";
-  }
-
-  return "";
-}
-
-
-/* ======================================================
-   IDENTIFICAR MÉTRICA
-====================================================== */
-
-function metricKey(label) {
-  const text = String(label || "")
-    .toLowerCase();
-
-  /*
-    IMPORTANTE:
-    chutes no gol precisa vir antes
-    de "gol", porque a frase contém
-    a palavra gol.
-  */
-
-  if (
-    text.includes("chutes no gol") ||
-    text.includes("chute no gol")
-  ) {
-    return "sot";
-  }
-
-  if (text.includes("finaliza")) {
-    return "shots";
-  }
-
-  if (text.includes("escanteio")) {
-    return "corners";
-  }
-
-  if (text.includes("cart")) {
-    return "cards";
-  }
-
-  if (text.includes("falta")) {
-    return "fouls";
-  }
-
-  if (text.includes("gol")) {
-    return "goals";
-  }
-
-  return text;
-}
-
-
 /* ======================================================
    PEGAR VALOR DA LINHA
 ====================================================== */
 
 function lineThreshold(label) {
-  const match = String(label || "")
-    .match(/\+?(\d+(?:[.,]\d+)?)/);
+  const match =
+    String(label || "")
+      .match(
+        /\+?(\d+(?:[.,]\d+)?)/
+      );
 
   if (!match) {
     return 0;
   }
 
   return Number(
-    match[1].replace(",", ".")
+    match[1].replace(
+      ",",
+      "."
+    )
   );
 }
 
 
 /* ======================================================
-   PEGAR MÉDIA DA EQUIPE
+   ÍNDICE HISTÓRICO COMBINADO
+
+   70% = média das duas tendências
+   20% = lado mais fraco
+   10% = quantidade de jogos
+
+   NÃO É PROBABILIDADE DE ACERTO.
 ====================================================== */
 
-function getTeamAverage(
-  data,
-  side,
-  metric
-) {
-  const labelMap = {
-    goals: "gols",
-    corners: "escanteios",
-    shots: "finalizações",
-    sot: "chutes no gol",
-    cards: "cartões",
-    fouls: "faltas"
-  };
-
-  const wanted =
-    labelMap[metric];
-
-  if (!wanted) {
-    return null;
-  }
-
-  const row =
-    (data.stats || []).find(
-      stat =>
-        String(stat.label || "")
-          .toLowerCase()
-          .includes(wanted)
+function crossIndex(item) {
+  const producedRate =
+    Number(
+      item.produced?.rate
     );
 
-  if (!row) {
-    return null;
-  }
+  const concededRate =
+    Number(
+      item.opponent_conceded?.rate
+    );
 
-  const value =
-    side === "home"
-      ? row.home
-      : row.away;
-
-  const num = Number(value);
-
-  if (Number.isNaN(num)) {
-    return null;
-  }
-
-  return num;
-}
-
-
-/* ======================================================
-   NOTA DA MÉDIA
-
-   Exemplo:
-   linha +9.5 significa que
-   precisamos de pelo menos 10.
-
-   Quanto mais a média ficar
-   acima disso, melhor.
-====================================================== */
-
-function averageStrength(
-  average,
-  threshold
-) {
   if (
-    average === null ||
-    average === undefined
+    Number.isNaN(producedRate) ||
+    Number.isNaN(concededRate)
   ) {
-    return 0.5;
+    return null;
   }
 
-  const required =
-    threshold + 0.5;
+  const averageRate =
+    (
+      producedRate +
+      concededRate
+    ) / 2;
 
-  if (required <= 0) {
-    return 0.5;
-  }
-
-  const ratio =
-    average / required;
-
-  /*
-    Média exatamente na linha:
-    nota intermediária.
-
-    Média 30% ou mais acima:
-    nota máxima nesta parte.
-  */
-
-  if (ratio >= 1) {
-    return clamp(
-      0.65 +
-      ((ratio - 1) / 0.30) * 0.35,
-      0.65,
-      1
+  const weakerRate =
+    Math.min(
+      producedRate,
+      concededRate
     );
-  }
 
-  return clamp(
-    ratio * 0.65,
-    0,
-    0.65
-  );
-}
+  const producedGames =
+    Number(
+      item.produced?.games || 0
+    );
 
+  const concededGames =
+    Number(
+      item.opponent_conceded?.games || 0
+    );
 
-/* ======================================================
-   CALCULAR CONFIANÇA
-
-   PESOS:
-
-   65% = taxa histórica
-   20% = tamanho da amostra
-   15% = média comparada à linha
-
-   NÃO É PROBABILIDADE.
-====================================================== */
-
-function calculateConfidence(
-  rate,
-  games,
-  average,
-  threshold
-) {
-  const historyScore =
-    clamp(
-      Number(rate) / 100,
-      0,
-      1
+  const usableGames =
+    Math.min(
+      producedGames,
+      concededGames
     );
 
   const sampleScore =
     clamp(
-      Number(games) / 10,
+      usableGames / 10,
       0,
       1
     );
 
-  const avgScore =
-    averageStrength(
-      average,
-      threshold
-    );
-
-  const total =
+  const score =
     (
-      historyScore * 0.65 +
-      sampleScore * 0.20 +
-      avgScore * 0.15
+      (averageRate / 100) * 0.70 +
+      (weakerRate / 100) * 0.20 +
+      sampleScore * 0.10
     ) * 10;
 
   return Number(
-    total.toFixed(1)
+    score.toFixed(1)
   );
 }
 
 
 /* ======================================================
-   TEXTO DA CONFIANÇA
+   CLASSIFICAÇÃO DO ÍNDICE
 ====================================================== */
 
-function confidenceLabel(score) {
+function indexLabel(score) {
+  if (score === null) {
+    return "Sem dados";
+  }
+
   if (score >= 9) {
-    return "Confiança muito alta";
+    return "Histórico muito forte";
   }
 
   if (score >= 8) {
-    return "Confiança alta";
+    return "Histórico forte";
   }
 
   if (score >= 7) {
-    return "Confiança moderada";
+    return "Histórico moderado";
   }
 
-  return "Confiança baixa";
+  return "Histórico fraco";
 }
 
 
 /* ======================================================
-   ESCOLHER 1 LINHA POR MÉTRICA
+   ESCOLHER UMA LINHA POR MÉTRICA
 ====================================================== */
 
-function chooseBestTeamLines(
-  data,
-  side,
+function chooseBestCrossLines(
   teamName,
-  lines
+  items
 ) {
   const groups = {};
 
-  (lines || []).forEach(line => {
+  (items || []).forEach(item => {
+
+    const producedRate =
+      item.produced?.rate;
+
+    const concededRate =
+      item.opponent_conceded?.rate;
 
     if (
-      line.rate === null ||
-      !line.games ||
-      line.rate < 80
+      producedRate === null ||
+      producedRate === undefined ||
+      concededRate === null ||
+      concededRate === undefined
+    ) {
+      return;
+    }
+
+    /*
+      Só consideramos oportunidade
+      quando a média das duas tendências
+      atingir pelo menos 80%.
+    */
+
+    const crossRate =
+      Number(
+        item.cross_rate
+      );
+
+    if (
+      Number.isNaN(crossRate) ||
+      crossRate < 80
     ) {
       return;
     }
 
     const metric =
-      metricKey(line.label);
-
-    const threshold =
-      lineThreshold(line.label);
-
-    const avg =
-      getTeamAverage(
-        data,
-        side,
-        metric
-      );
-
-    const confidence =
-      calculateConfidence(
-        line.rate,
-        line.games,
-        avg,
-        threshold
-      );
+      item.metric ||
+      item.label;
 
     const candidate = {
-      team: teamName,
-      side,
-      metric,
-      label: line.label,
-      threshold,
-      rate: Number(line.rate),
-      hits: Number(line.hits),
-      games: Number(line.games),
-      average: avg,
-      confidence
+      ...item,
+
+      team:
+        teamName,
+
+      threshold:
+        lineThreshold(
+          item.label
+        ),
+
+      index:
+        crossIndex(item)
     };
 
     const current =
       groups[metric];
 
     if (!current) {
-      groups[metric] = candidate;
+      groups[metric] =
+        candidate;
+
       return;
     }
 
     /*
       Primeiro:
-      maior aproveitamento.
+      maior índice combinado.
     */
 
     if (
-      candidate.rate >
-      current.rate
+      candidate.index >
+      current.index
     ) {
-      groups[metric] = candidate;
+      groups[metric] =
+        candidate;
+
       return;
     }
 
     /*
-      Se porcentagem empatar:
+      Se índice empatar:
+      maior força combinada.
+    */
+
+    if (
+      candidate.index ===
+        current.index &&
+      candidate.cross_rate >
+        current.cross_rate
+    ) {
+      groups[metric] =
+        candidate;
+
+      return;
+    }
+
+    /*
+      Se tudo empatar:
       linha mais alta.
     */
 
     if (
-      candidate.rate ===
-        current.rate &&
+      candidate.index ===
+        current.index &&
+      candidate.cross_rate ===
+        current.cross_rate &&
       candidate.threshold >
         current.threshold
     ) {
-      groups[metric] = candidate;
+      groups[metric] =
+        candidate;
     }
 
   });
 
-  return Object.values(groups);
+  return Object.values(
+    groups
+  );
 }
 
 
 /* ======================================================
-   MELHORES OPORTUNIDADES
+   MELHORES OPORTUNIDADES CRUZADAS
 ====================================================== */
 
 function getBestOpportunities(data) {
@@ -692,57 +628,48 @@ function getBestOpportunities(data) {
     data.away?.name ||
     currentFixture.away.name;
 
-  const homeLines =
-    data.lines?.home || [];
 
-  const awayLines =
-    data.lines?.away || [];
-
-  const homeBest =
-    chooseBestTeamLines(
-      data,
-      "home",
+  const homeCross =
+    chooseBestCrossLines(
       homeName,
-      homeLines
+      data.cross?.home || []
     );
 
-  const awayBest =
-    chooseBestTeamLines(
-      data,
-      "away",
+
+  const awayCross =
+    chooseBestCrossLines(
       awayName,
-      awayLines
+      data.cross?.away || []
     );
+
 
   const opportunities = [
-    ...homeBest,
-    ...awayBest
+    ...homeCross,
+    ...awayCross
   ];
 
-  /*
-    Agora ordenamos pela
-    NOTA DE CONFIANÇA.
-  */
 
   opportunities.sort(
     (a, b) => {
 
       if (
-        b.confidence !==
-        a.confidence
+        b.index !==
+        a.index
       ) {
         return (
-          b.confidence -
-          a.confidence
+          b.index -
+          a.index
         );
       }
 
-      if (b.rate !== a.rate) {
-        return b.rate - a.rate;
-      }
-
-      if (b.games !== a.games) {
-        return b.games - a.games;
+      if (
+        b.cross_rate !==
+        a.cross_rate
+      ) {
+        return (
+          b.cross_rate -
+          a.cross_rate
+        );
       }
 
       return (
@@ -752,12 +679,13 @@ function getBestOpportunities(data) {
     }
   );
 
+
   return opportunities;
 }
 
 
 /* ======================================================
-   MOSTRAR MELHORES OPORTUNIDADES
+   MOSTRAR OPORTUNIDADES CRUZADAS
 ====================================================== */
 
 function renderBestOpportunities(data) {
@@ -775,13 +703,18 @@ function renderBestOpportunities(data) {
     }
 
     const box =
-      document.createElement("div");
+      document.createElement(
+        "div"
+      );
 
-    box.className = "card";
+    box.className =
+      "card";
+
     box.id =
       "bestOpportunitiesCard";
 
-    box.style.marginTop = "16px";
+    box.style.marginTop =
+      "16px";
 
     box.innerHTML = `
 
@@ -792,7 +725,7 @@ function renderBestOpportunities(data) {
         </h2>
 
         <span>
-          80%+
+          CRUZAMENTO
         </span>
 
       </div>
@@ -805,9 +738,9 @@ function renderBestOpportunities(data) {
           margin-bottom:16px;
         "
       >
-        Melhor linha de cada
-        estatística, ordenada pela
-        nota de confiança.
+        O sistema cruza o que
+        a equipe produz com o que
+        o adversário concede.
       </p>
 
 
@@ -828,20 +761,20 @@ function renderBestOpportunities(data) {
           opacity:.75;
         "
       >
-        A nota de confiança combina
-        frequência histórica,
-        quantidade de jogos e média
-        da equipe. Ela não representa
-        probabilidade garantida de
-        acerto.
+        O Índice Histórico Combinado
+        usa somente o desempenho passado
+        das equipes. Ele não representa
+        probabilidade garantida de acerto.
       </div>
 
     `;
+
 
     statsCard.insertAdjacentElement(
       "afterend",
       box
     );
+
 
     container =
       $("bestOpportunities");
@@ -856,9 +789,9 @@ function renderBestOpportunities(data) {
 
     container.innerHTML = `
       <div class="safe-box">
-        Nenhuma linha atingiu
-        pelo menos 80%
-        neste recorte.
+        Nenhuma linha teve força
+        combinada suficiente neste
+        recorte.
       </div>
     `;
 
@@ -866,180 +799,305 @@ function renderBestOpportunities(data) {
   }
 
 
+  const homeName =
+    data.home?.name ||
+    currentFixture.home.name;
+
+  const awayName =
+    data.away?.name ||
+    currentFixture.away.name;
+
+
   container.innerHTML =
     opportunities
-      .map((item, index) => `
+      .map(
+        (item, index) => {
 
-        <div
-          class="safe-box"
-          style="
-            margin-bottom:12px;
-          "
-        >
+          const opponent =
+            item.team === homeName
+              ? awayName
+              : homeName;
 
-          <div
-            style="
-              display:flex;
-              justify-content:
-              space-between;
-              gap:12px;
-              align-items:flex-start;
-            "
-          >
 
-            <div>
+          const produced =
+            item.produced || {};
+
+
+          const conceded =
+            item.opponent_conceded || {};
+
+
+          return `
+
+            <div
+              class="safe-box"
+              style="
+                margin-bottom:14px;
+              "
+            >
 
               <div
                 style="
-                  font-size:12px;
-                  opacity:.7;
-                  margin-bottom:4px;
+                  display:flex;
+                  justify-content:
+                  space-between;
+                  gap:12px;
+                  align-items:flex-start;
                 "
               >
-                ${index + 1}.
-                ${item.team}
+
+                <div>
+
+                  <div
+                    style="
+                      font-size:12px;
+                      opacity:.7;
+                      margin-bottom:4px;
+                    "
+                  >
+                    ${index + 1}.
+                    ${item.team}
+                  </div>
+
+                  <strong
+                    style="
+                      font-size:16px;
+                    "
+                  >
+                    ${item.label}
+                  </strong>
+
+                </div>
+
+
+                <div
+                  style="
+                    text-align:right;
+                  "
+                >
+
+                  <strong
+                    style="
+                      font-size:20px;
+                      color:
+                      ${lineColor(
+                        item.cross_rate
+                      )};
+                    "
+                  >
+                    ${item.index}/10
+                  </strong>
+
+                  <small
+                    style="
+                      display:block;
+                      opacity:.75;
+                      margin-top:3px;
+                    "
+                  >
+                    ${indexLabel(
+                      item.index
+                    )}
+                  </small>
+
+                </div>
+
               </div>
 
 
-              <strong>
-                ${item.label}
-              </strong>
+              <div
+                style="
+                  margin-top:14px;
+                  padding:11px;
+                  border-radius:10px;
+                  background:
+                  rgba(255,255,255,.04);
+                "
+              >
+
+                <div
+                  style="
+                    font-size:12px;
+                    opacity:.7;
+                    margin-bottom:5px;
+                  "
+                >
+                  ${item.team} produz
+                </div>
+
+                <strong>
+                  ${formatRate(
+                    produced.rate
+                  )}
+                </strong>
+
+                <span
+                  style="
+                    opacity:.75;
+                    margin-left:5px;
+                  "
+                >
+                  • ${produced.hits}
+                  de ${produced.games}
+                  jogos
+                </span>
+
+                ${
+                  produced.average !==
+                  null &&
+                  produced.average !==
+                  undefined
+
+                    ? `
+                      <div
+                        style="
+                          margin-top:5px;
+                          font-size:12px;
+                          opacity:.75;
+                        "
+                      >
+                        Média:
+                        ${Number(
+                          produced.average
+                        ).toFixed(2)}
+                      </div>
+                    `
+
+                    : ""
+                }
+
+              </div>
 
 
-              ${
-                item.average !== null
+              <div
+                style="
+                  margin-top:8px;
+                  padding:11px;
+                  border-radius:10px;
+                  background:
+                  rgba(255,255,255,.04);
+                "
+              >
 
-                  ? `
-                    <small
-                      style="
-                        display:block;
-                        margin-top:6px;
-                        opacity:.7;
-                      "
-                    >
-                      Média:
-                      ${item.average.toFixed(2)}
-                    </small>
-                  `
+                <div
+                  style="
+                    font-size:12px;
+                    opacity:.7;
+                    margin-bottom:5px;
+                  "
+                >
+                  ${opponent} concede
+                </div>
 
-                  : ""
-              }
+                <strong>
+                  ${formatRate(
+                    conceded.rate
+                  )}
+                </strong>
+
+                <span
+                  style="
+                    opacity:.75;
+                    margin-left:5px;
+                  "
+                >
+                  • ${conceded.hits}
+                  de ${conceded.games}
+                  jogos
+                </span>
+
+                ${
+                  conceded.average !==
+                  null &&
+                  conceded.average !==
+                  undefined
+
+                    ? `
+                      <div
+                        style="
+                          margin-top:5px;
+                          font-size:12px;
+                          opacity:.75;
+                        "
+                      >
+                        Média cedida:
+                        ${Number(
+                          conceded.average
+                        ).toFixed(2)}
+                      </div>
+                    `
+
+                    : ""
+                }
+
+              </div>
+
+
+              <div
+                style="
+                  margin-top:10px;
+                  padding-top:10px;
+                  border-top:
+                  1px solid
+                  rgba(255,255,255,.07);
+                  display:flex;
+                  justify-content:
+                  space-between;
+                  align-items:center;
+                  gap:10px;
+                "
+              >
+
+                <small
+                  style="
+                    opacity:.75;
+                  "
+                >
+                  Força combinada
+                </small>
+
+                <strong
+                  style="
+                    color:
+                    ${lineColor(
+                      item.cross_rate
+                    )};
+                  "
+                >
+                  ${formatRate(
+                    item.cross_rate
+                  )}
+                </strong>
+
+              </div>
 
             </div>
 
-
-            <div
-              style="
-                text-align:right;
-              "
-            >
-
-              <strong
-                style="
-                  color:
-                  ${lineColor(
-                    item.rate
-                  )};
-                  font-size:18px;
-                "
-              >
-                ${item.rate}%
-              </strong>
-
-
-              <small
-                style="
-                  display:block;
-                  margin-top:2px;
-                  opacity:.8;
-                "
-              >
-                ${strengthLabel(
-                  item.rate
-                )}
-              </small>
-
-            </div>
-
-          </div>
-
-
-          <div
-            style="
-              margin-top:12px;
-              display:flex;
-              justify-content:
-              space-between;
-              align-items:center;
-              gap:12px;
-              padding-top:10px;
-              border-top:
-              1px solid
-              rgba(255,255,255,.07);
-            "
-          >
-
-            <small
-              style="
-                opacity:.75;
-              "
-            >
-              Bateu ${item.hits}
-              de ${item.games} jogos
-            </small>
-
-
-            <div
-              style="
-                text-align:right;
-              "
-            >
-
-              <strong
-                style="
-                  font-size:17px;
-                  color:var(--green);
-                "
-              >
-                ${item.confidence}/10
-              </strong>
-
-              <small
-                style="
-                  display:block;
-                  opacity:.7;
-                  margin-top:2px;
-                "
-              >
-                ${confidenceLabel(
-                  item.confidence
-                )}
-              </small>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      `)
+          `;
+        }
+      )
       .join("");
 }
 
 
 /* ======================================================
-   HISTÓRICO COMPLETO
+   HISTÓRICO INDIVIDUAL
 ====================================================== */
 
 function renderTeamLines(
   teamName,
   lines
 ) {
-  if (!lines || !lines.length) {
+  if (
+    !lines ||
+    !lines.length
+  ) {
 
     return `
       <div class="safe-box">
-        <strong>${teamName}</strong>
+        <strong>
+          ${teamName}
+        </strong>
 
         <p>
           Sem dados suficientes.
@@ -1190,19 +1248,15 @@ function renderLines(data) {
   let linesContainer =
     $("linesResults");
 
+
   const homeUsed =
     data.home?.matches_used ??
     currentSample;
 
+
   const awayUsed =
     data.away?.matches_used ??
     currentSample;
-
-  const realSample =
-    Math.min(
-      homeUsed,
-      awayUsed
-    );
 
 
   if (!linesContainer) {
@@ -1230,8 +1284,8 @@ function renderLines(data) {
         <span
           id="linesSampleInfo"
         >
-          ${realSample}
-          jogos encontrados
+          ${homeUsed} casa •
+          ${awayUsed} fora
         </span>
 
       </div>
@@ -1244,9 +1298,9 @@ function renderLines(data) {
           margin-bottom:16px;
         "
       >
-        Quantas vezes cada linha
-        aconteceu nos jogos
-        analisados.
+        Histórico individual de
+        cada equipe no recorte
+        casa/fora.
       </p>
 
 
@@ -1256,6 +1310,7 @@ function renderLines(data) {
 
     `;
 
+
     linesContainer =
       $("linesResults");
 
@@ -1264,10 +1319,11 @@ function renderLines(data) {
     const sampleInfo =
       $("linesSampleInfo");
 
+
     if (sampleInfo) {
 
       sampleInfo.textContent =
-        `${realSample} jogos encontrados`;
+        `${homeUsed} casa • ${awayUsed} fora`;
 
     }
   }
@@ -1275,6 +1331,7 @@ function renderLines(data) {
 
   const homeLines =
     data.lines?.home || [];
+
 
   const awayLines =
     data.lines?.away || [];
@@ -1313,9 +1370,10 @@ async function loadAnalysis() {
 
   try {
 
-    const data = await getJSON(
-      `/api/analysis/${currentFixture.id}?sample=${currentSample}`
-    );
+    const data =
+      await getJSON(
+        `/api/analysis/${currentFixture.id}?sample=${currentSample}`
+      );
 
 
     $("sourceLabel").textContent =
@@ -1324,6 +1382,7 @@ async function loadAnalysis() {
 
     const homeUsed =
       data.home?.matches_used;
+
 
     const awayUsed =
       data.away?.matches_used;
@@ -1384,6 +1443,7 @@ async function loadAnalysis() {
       data
     );
 
+
     renderLines(
       data
     );
@@ -1401,7 +1461,7 @@ async function loadAnalysis() {
 
 
 /* ======================================================
-   BOTÃO ATUALIZAR
+   ATUALIZAR
 ====================================================== */
 
 $("refreshBtn")
@@ -1441,7 +1501,7 @@ $("backBtn")
 
 
 /* ======================================================
-   ÚLTIMOS 5 / ÚLTIMOS 10
+   ÚLTIMOS 5 / 10
 ====================================================== */
 
 document
@@ -1457,16 +1517,18 @@ document
             btn.dataset.sample
           );
 
+
         document
           .querySelectorAll(".tab")
-          .forEach(b =>
+          .forEach(b => {
 
             b.classList.toggle(
               "active",
               b === btn
-            )
+            );
 
-          );
+          });
+
 
         if (currentFixture) {
 
