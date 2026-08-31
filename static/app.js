@@ -9,12 +9,27 @@ let currentSample = 10;
 
 
 /* ======================================================
-   CONFIGURAÇÃO DOS FILTROS
+   FILTROS PRINCIPAIS
 ====================================================== */
 
 const MIN_PRODUCED_RATE = 75;
 const MIN_CONCEDED_RATE = 75;
 const MIN_CROSS_RATE = 80;
+
+
+/* ======================================================
+   PESO DA TENDÊNCIA
+
+   SUBINDO: +0.3
+   MANTIDA: 0
+   ENFRAQUECENDO: -0.4
+
+   O ajuste é pequeno de propósito.
+====================================================== */
+
+const TREND_BONUS_UP = 0.3;
+const TREND_BONUS_STABLE = 0;
+const TREND_PENALTY_DOWN = -0.4;
 
 
 /* ======================================================
@@ -129,7 +144,7 @@ function teamIcon(team) {
 
 
 /* ======================================================
-   JOGOS DO DIA
+   PARTIDAS
 ====================================================== */
 
 function renderFixtures(items) {
@@ -344,7 +359,6 @@ function setBigTeam(prefix, team) {
 async function openAnalysis(fixture) {
   currentFixture = fixture;
 
-
   fixturesEl.classList.add(
     "hidden"
   );
@@ -421,7 +435,7 @@ function lineColor(rate) {
 
 
 /* ======================================================
-   PEGAR VALOR DA LINHA
+   VALOR NUMÉRICO DA LINHA
 ====================================================== */
 
 function lineThreshold(label) {
@@ -447,7 +461,7 @@ function lineThreshold(label) {
 
 
 /* ======================================================
-   ÍNDICE HISTÓRICO COMBINADO
+   ÍNDICE HISTÓRICO BASE
 ====================================================== */
 
 function crossIndex(item) {
@@ -527,7 +541,7 @@ function crossIndex(item) {
 
 
 /* ======================================================
-   CLASSIFICAÇÃO DO ÍNDICE
+   CLASSIFICAÇÃO
 ====================================================== */
 
 function indexLabel(score) {
@@ -556,7 +570,7 @@ function indexLabel(score) {
 
 
 /* ======================================================
-   TENDÊNCIA 5 X 10
+   TENDÊNCIA
 ====================================================== */
 
 function trendInfo(trend) {
@@ -592,7 +606,7 @@ function trendInfo(trend) {
 
 
 /* ======================================================
-   LOCALIZAR TENDÊNCIA DA LINHA
+   LOCALIZAR TENDÊNCIA
 ====================================================== */
 
 function findTrend(
@@ -621,6 +635,71 @@ function findTrend(
       Number(trend.line) ===
         Number(item.line)
   ) || null;
+}
+
+
+/* ======================================================
+   AJUSTE DO RANKING PELA TENDÊNCIA
+====================================================== */
+
+function trendAdjustment(trendName) {
+  if (trendName === "subindo") {
+    return TREND_BONUS_UP;
+  }
+
+
+  if (trendName === "enfraquecendo") {
+    return TREND_PENALTY_DOWN;
+  }
+
+
+  if (trendName === "mantida") {
+    return TREND_BONUS_STABLE;
+  }
+
+
+  return 0;
+}
+
+
+/* ======================================================
+   ÍNDICE FINAL PARA ORDENAR
+
+   ÍNDICE BASE + TENDÊNCIA
+
+   Máximo continua sendo 10.
+====================================================== */
+
+function rankingIndex(
+  baseIndex,
+  trendName
+) {
+  if (
+    baseIndex === null ||
+    baseIndex === undefined
+  ) {
+    return null;
+  }
+
+
+  const adjustment =
+    trendAdjustment(
+      trendName
+    );
+
+
+  const result =
+    clamp(
+      Number(baseIndex) +
+      adjustment,
+      0,
+      10
+    );
+
+
+  return Number(
+    result.toFixed(1)
+  );
 }
 
 
@@ -715,6 +794,27 @@ function trendBlock(
         ? `+${value.toFixed(1)} p.p.`
         : `${value.toFixed(1)} p.p.`;
 
+  }
+
+
+  const adjustment =
+    trendAdjustment(
+      trend.trend
+    );
+
+
+  let adjustmentText =
+    "0.0";
+
+
+  if (adjustment > 0) {
+    adjustmentText =
+      `+${adjustment.toFixed(1)}`;
+  }
+
+  else {
+    adjustmentText =
+      adjustment.toFixed(1);
   }
 
 
@@ -892,7 +992,6 @@ function trendBlock(
           display:flex;
           justify-content:
           space-between;
-          align-items:center;
           gap:10px;
           font-size:12px;
         "
@@ -909,6 +1008,33 @@ function trendBlock(
 
         <strong>
           ${differenceText}
+        </strong>
+
+      </div>
+
+
+      <div
+        style="
+          margin-top:7px;
+          display:flex;
+          justify-content:
+          space-between;
+          gap:10px;
+          font-size:12px;
+        "
+      >
+
+        <span
+          style="
+            opacity:.7;
+          "
+        >
+          Ajuste no ranking
+        </span>
+
+
+        <strong>
+          ${adjustmentText}
         </strong>
 
       </div>
@@ -965,7 +1091,7 @@ function linePassesFilters(item) {
 
 
 /* ======================================================
-   MOTIVOS DE DESCARTE
+   MOTIVOS DO DESCARTE
 ====================================================== */
 
 function rejectionReasons(item) {
@@ -1049,28 +1175,74 @@ function rejectionReasons(item) {
 
 
 /* ======================================================
-   PREPARAR LINHAS
+   PREPARAR LINHAS E COLOCAR TENDÊNCIA
 ====================================================== */
 
 function prepareTeamLines(
   teamName,
-  items
+  items,
+  data
 ) {
   return (items || [])
-    .map(item => ({
-      ...item,
+    .map(item => {
 
-      team:
-        teamName,
+      const temporary = {
+        ...item,
 
-      threshold:
-        lineThreshold(
-          item.label
-        ),
+        team:
+          teamName,
 
-      index:
-        crossIndex(item)
-    }));
+        threshold:
+          lineThreshold(
+            item.label
+          )
+      };
+
+
+      const baseIndex =
+        crossIndex(
+          temporary
+        );
+
+
+      const trend =
+        findTrend(
+          temporary,
+          data
+        );
+
+
+      const trendName =
+        trend?.trend ||
+        "sem_dados";
+
+
+      const finalIndex =
+        rankingIndex(
+          baseIndex,
+          trendName
+        );
+
+
+      return {
+        ...temporary,
+
+        baseIndex:
+          baseIndex,
+
+        trendName:
+          trendName,
+
+        trendAdjustment:
+          trendAdjustment(
+            trendName
+          ),
+
+        index:
+          finalIndex
+      };
+
+    });
 }
 
 
@@ -1180,6 +1352,7 @@ function sortOpportunities(items) {
       const aIndex =
         a.index ?? -1;
 
+
       const bIndex =
         b.index ?? -1;
 
@@ -1250,14 +1423,16 @@ function classifyOpportunities(data) {
   const homeItems =
     prepareTeamLines(
       homeName,
-      data.cross?.home || []
+      data.cross?.home || [],
+      data
     );
 
 
   const awayItems =
     prepareTeamLines(
       awayName,
-      data.cross?.away || []
+      data.cross?.away || [],
+      data
     );
 
 
@@ -1439,6 +1614,27 @@ function opportunityCard(
       </div>
 
 
+      ${
+        item.baseIndex !== null &&
+        item.baseIndex !== undefined
+          ? `
+            <div
+              style="
+                margin-top:8px;
+                font-size:11px;
+                opacity:.65;
+              "
+            >
+              Índice base:
+              ${item.baseIndex}/10
+              • ranking com tendência:
+              ${item.index}/10
+            </div>
+          `
+          : ""
+      }
+
+
       <div
         style="
           margin-top:14px;
@@ -1463,11 +1659,9 @@ function opportunityCard(
 
 
         <strong>
-
           ${formatRate(
             produced.rate
           )}
-
         </strong>
 
 
@@ -1492,7 +1686,6 @@ function opportunityCard(
           undefined
 
             ? `
-
               <div
                 style="
                   margin-top:5px;
@@ -1500,14 +1693,11 @@ function opportunityCard(
                   opacity:.75;
                 "
               >
-
                 Média:
                 ${Number(
                   produced.average
                 ).toFixed(2)}
-
               </div>
-
             `
 
             : ""
@@ -1540,11 +1730,9 @@ function opportunityCard(
 
 
         <strong>
-
           ${formatRate(
             conceded.rate
           )}
-
         </strong>
 
 
@@ -1569,7 +1757,6 @@ function opportunityCard(
           undefined
 
             ? `
-
               <div
                 style="
                   margin-top:5px;
@@ -1577,14 +1764,11 @@ function opportunityCard(
                   opacity:.75;
                 "
               >
-
                 Média cedida:
                 ${Number(
                   conceded.average
                 ).toFixed(2)}
-
               </div>
-
             `
 
             : ""
@@ -1613,9 +1797,7 @@ function opportunityCard(
             opacity:.75;
           "
         >
-
           Força combinada
-
         </small>
 
 
@@ -1713,9 +1895,7 @@ function discardedCard(
               margin-bottom:4px;
             "
           >
-
             ${item.team}
-
           </div>
 
 
@@ -1811,7 +1991,7 @@ function discardedCard(
 
 
 /* ======================================================
-   RENDERIZAR TOP 3 / BOAS / DESCARTADAS
+   TOP 3 / BOAS / DESCARTADAS
 ====================================================== */
 
 function renderBestOpportunities(data) {
@@ -1874,10 +2054,10 @@ function renderBestOpportunities(data) {
         "
       >
 
-        O sistema cruza o desempenho
-        da equipe com o que o adversário
-        costuma conceder e compara
-        Últimos 5 × Últimos 10.
+        O sistema cruza produção,
+        histórico do adversário e
+        tendência dos últimos 5
+        contra os últimos 10.
 
       </p>
 
@@ -1900,15 +2080,16 @@ function renderBestOpportunities(data) {
         "
       >
 
-        O Índice Histórico Combinado
-        é uma classificação baseada
-        no histórico recente.
+        Para entrar nas oportunidades,
+        a linha ainda precisa atingir
+        produção ≥ ${MIN_PRODUCED_RATE}%,
+        adversário ≥ ${MIN_CONCEDED_RATE}%
+        e força combinada ≥ ${MIN_CROSS_RATE}%.
 
-        A tendência compara os últimos
-        5 jogos com o recorte de até
-        10 jogos.
+        A tendência altera apenas
+        levemente a posição no ranking.
 
-        Nenhum desses indicadores
+        O índice é histórico e não
         representa garantia ou
         probabilidade certa de acerto.
 
@@ -1975,7 +2156,7 @@ function renderBestOpportunities(data) {
             opacity:.7;
           "
         >
-          MAIS FORTES
+          RANKING ATUAL
         </span>
 
       </div>
@@ -2057,9 +2238,7 @@ function renderBestOpportunities(data) {
             opacity:.7;
           "
         >
-
           APROVADAS
-
         </span>
 
       </div>
@@ -2150,10 +2329,12 @@ function renderBestOpportunities(data) {
         >
 
           Não passaram em pelo menos
-          um dos filtros:
-          produção ≥ ${MIN_PRODUCED_RATE}%,
-          adversário concede ≥ ${MIN_CONCEDED_RATE}%
-          e força combinada ≥ ${MIN_CROSS_RATE}%.
+          um dos filtros principais.
+
+          Uma tendência positiva não
+          transforma automaticamente
+          uma linha descartada em
+          oportunidade aprovada.
 
         </p>
 
@@ -2270,12 +2451,7 @@ function renderTeamLines(
                   padding:10px 0;
                   border-bottom:
                   1px solid
-                  rgba(
-                    255,
-                    255,
-                    255,
-                    .07
-                  );
+                  rgba(255,255,255,.07);
                 "
               >
 
@@ -2312,12 +2488,7 @@ function renderTeamLines(
                 padding:10px 0;
                 border-bottom:
                 1px solid
-                rgba(
-                  255,
-                  255,
-                  255,
-                  .07
-                );
+                rgba(255,255,255,.07);
               "
             >
 
@@ -2380,7 +2551,7 @@ function renderTeamLines(
 
 
 /* ======================================================
-   RENDERIZAR HISTÓRICO
+   HISTÓRICO DAS LINHAS
 ====================================================== */
 
 function renderLines(data) {
@@ -2587,8 +2758,7 @@ async function loadAnalysis() {
       `
 
         <div class="empty">
-          Sem estatísticas
-          disponíveis.
+          Sem estatísticas disponíveis.
         </div>
 
       `;
