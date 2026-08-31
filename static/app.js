@@ -28,6 +28,56 @@ const TREND_PENALTY_DOWN = -0.4;
 
 
 /* ======================================================
+   BÔNUS PEQUENO POR DIFICULDADE DA LINHA
+
+   IMPORTANTE:
+
+   Isso NÃO faz uma linha reprovada virar aprovada.
+
+   O bônus só entra no ranking DEPOIS
+   que a linha já passou pelos filtros.
+
+   Máximo usado atualmente: +0.2
+====================================================== */
+
+const LINE_DIFFICULTY_BONUS = {
+  goals: {
+    "0.5": 0
+  },
+
+  corners: {
+    "3.5": 0,
+    "4.5": 0.1
+  },
+
+  shots: {
+    "9.5": 0,
+    "12.5": 0.1
+  },
+
+  sot: {
+    "2.5": 0,
+    "3.5": 0.1
+  },
+
+  yellow_cards: {
+    "0.5": 0,
+    "1.5": 0.1,
+    "2.5": 0.2
+  },
+
+  red_cards: {
+    "0.5": 0
+  },
+
+  fouls: {
+    "9.5": 0,
+    "10.5": 0.1
+  }
+};
+
+
+/* ======================================================
    AUXILIARES
 ====================================================== */
 
@@ -472,6 +522,41 @@ function lineThreshold(label) {
 
 
 /* ======================================================
+   BÔNUS DE DIFICULDADE
+====================================================== */
+
+function difficultyAdjustment(
+  metric,
+  threshold
+) {
+  const metricTable =
+    LINE_DIFFICULTY_BONUS[
+      metric
+    ];
+
+  if (!metricTable) {
+    return 0;
+  }
+
+  const key =
+    Number(threshold)
+      .toFixed(1);
+
+  const bonus =
+    metricTable[key];
+
+  if (
+    bonus === undefined ||
+    bonus === null
+  ) {
+    return 0;
+  }
+
+  return Number(bonus);
+}
+
+
+/* ======================================================
    ÍNDICE HISTÓRICO BASE
 ====================================================== */
 
@@ -551,18 +636,18 @@ function indexLabel(score) {
   }
 
   if (score >= 9) {
-    return "Histórico muito forte";
+    return "Índice muito forte";
   }
 
   if (score >= 8) {
-    return "Histórico forte";
+    return "Índice forte";
   }
 
   if (score >= 7) {
-    return "Histórico moderado";
+    return "Índice moderado";
   }
 
-  return "Histórico fraco";
+  return "Índice fraco";
 }
 
 
@@ -652,11 +737,17 @@ function trendAdjustment(trendName) {
 
 /* ======================================================
    ÍNDICE FINAL
+
+   BASE
+   + TENDÊNCIA
+   + PEQUENO BÔNUS DA LINHA
 ====================================================== */
 
 function rankingIndex(
   baseIndex,
-  trendName
+  trendName,
+  metric,
+  threshold
 ) {
   if (
     baseIndex === null ||
@@ -665,15 +756,22 @@ function rankingIndex(
     return null;
   }
 
-  const adjustment =
+  const trendBonus =
     trendAdjustment(
       trendName
+    );
+
+  const difficultyBonus =
+    difficultyAdjustment(
+      metric,
+      threshold
     );
 
   const result =
     clamp(
       Number(baseIndex) +
-      adjustment,
+      trendBonus +
+      difficultyBonus,
       0,
       10
     );
@@ -775,6 +873,14 @@ function trendBlock(
     adjustmentText =
       `+${adjustment.toFixed(1)}`;
   }
+
+  const difficultyBonus =
+    item.difficultyBonus || 0;
+
+  const difficultyText =
+    difficultyBonus > 0
+      ? `+${difficultyBonus.toFixed(1)}`
+      : difficultyBonus.toFixed(1);
 
   const opponentText =
     usesOpponentHistoryWording(
@@ -975,11 +1081,35 @@ function trendBlock(
             opacity:.7;
           "
         >
-          Ajuste no ranking
+          Ajuste da tendência
         </span>
 
         <strong>
           ${adjustmentText}
+        </strong>
+
+      </div>
+
+      <div
+        style="
+          margin-top:7px;
+          display:flex;
+          justify-content:space-between;
+          gap:10px;
+          font-size:12px;
+        "
+      >
+
+        <span
+          style="
+            opacity:.7;
+          "
+        >
+          Bônus da linha
+        </span>
+
+        <strong>
+          ${difficultyText}
         </strong>
 
       </div>
@@ -1120,6 +1250,11 @@ function prepareTeamLines(
   return (items || [])
     .map(item => {
 
+      const threshold =
+        lineThreshold(
+          item.label
+        );
+
       const temporary = {
         ...item,
 
@@ -1127,9 +1262,7 @@ function prepareTeamLines(
           teamName,
 
         threshold:
-          lineThreshold(
-            item.label
-          )
+          threshold
       };
 
       const baseIndex =
@@ -1147,10 +1280,18 @@ function prepareTeamLines(
         trend?.trend ||
         "sem_dados";
 
+      const difficultyBonus =
+        difficultyAdjustment(
+          item.metric,
+          threshold
+        );
+
       const finalIndex =
         rankingIndex(
           baseIndex,
-          trendName
+          trendName,
+          item.metric,
+          threshold
         );
 
       return {
@@ -1166,6 +1307,9 @@ function prepareTeamLines(
           trendAdjustment(
             trendName
           ),
+
+        difficultyBonus:
+          difficultyBonus,
 
         index:
           finalIndex
@@ -1506,15 +1650,6 @@ function classifyOpportunities(data) {
 
 /* ======================================================
    FILTRO RECENTE DA SUGESTÃO PRINCIPAL
-
-   Precisa:
-
-   - ter tendência
-   - não estar enfraquecendo
-   - ter no mínimo 4 jogos válidos
-   - produção >= 75%
-   - histórico adversário >= 75%
-   - força combinada >= 80%
 ====================================================== */
 
 function passesRecentPrimaryFilter(
@@ -1605,15 +1740,11 @@ function passesRecentPrimaryFilter(
 /* ======================================================
    CANDIDATOS DA SUGESTÃO PRINCIPAL
 
-   REGRA CORRIGIDA:
-
-   1. Analisa TODAS as linhas.
-   2. A linha precisa passar nos 10.
-   3. A mesma linha precisa passar nos 5.
-   4. Precisa ter amostra recente suficiente.
-   5. Não pode estar enfraquecendo.
-   6. Só depois escolhemos a MAIOR linha
-      segura de cada métrica.
+   1. Passa nos 10.
+   2. Passa nos 5.
+   3. Não enfraquece.
+   4. Tem amostra suficiente.
+   5. Só depois escolhe a maior linha.
 ====================================================== */
 
 function primaryCandidates(data) {
@@ -1653,12 +1784,6 @@ function primaryCandidates(data) {
       data
     );
 
-  /*
-    PRIMEIRO:
-    cada linha individual precisa
-    passar tanto nos 10 quanto nos 5.
-  */
-
   const homeStrong =
     homeItems.filter(
       item =>
@@ -1679,12 +1804,6 @@ function primaryCandidates(data) {
         )
     );
 
-  /*
-    SÓ AGORA:
-    escolhemos a maior linha segura
-    dentro de cada métrica.
-  */
-
   const homeBest =
     chooseHighestApprovedPerMetric(
       homeStrong
@@ -1703,7 +1822,7 @@ function primaryCandidates(data) {
 
 
 /* ======================================================
-   ESCOLHER UMA ÚNICA SUGESTÃO
+   ESCOLHER SUGESTÃO PRINCIPAL
 ====================================================== */
 
 function selectPrimarySuggestion(data) {
@@ -1830,6 +1949,22 @@ function primarySuggestionCard(
       trend.trend
     );
 
+  const difficultyBonus =
+    item.difficultyBonus || 0;
+
+  const trendBonus =
+    item.trendAdjustment || 0;
+
+  const trendBonusText =
+    trendBonus > 0
+      ? `+${trendBonus.toFixed(1)}`
+      : trendBonus.toFixed(1);
+
+  const difficultyText =
+    difficultyBonus > 0
+      ? `+${difficultyBonus.toFixed(1)}`
+      : difficultyBonus.toFixed(1);
+
   return `
 
     <div
@@ -1901,7 +2036,7 @@ function primarySuggestionCard(
             "
           >
 
-            índice histórico
+            índice ajustado
 
           </div>
 
@@ -2086,6 +2221,38 @@ function primarySuggestionCard(
 
       <div
         style="
+          margin-top:10px;
+          padding:11px;
+          border-radius:10px;
+          background:rgba(255,255,255,.035);
+          font-size:12px;
+          line-height:1.7;
+        "
+      >
+
+        Índice base:
+        <strong>
+          ${item.baseIndex}/10
+        </strong>
+
+        <br>
+
+        Tendência:
+        <strong>
+          ${trendBonusText}
+        </strong>
+
+        <br>
+
+        Bônus da linha:
+        <strong>
+          ${difficultyText}
+        </strong>
+
+      </div>
+
+      <div
+        style="
           margin-top:12px;
           padding-top:12px;
           border-top:1px solid rgba(255,255,255,.08);
@@ -2099,13 +2266,16 @@ function primarySuggestionCard(
         primeiro nos Últimos 10 e nos
         Últimos 5.
 
-        Só depois o sistema prioriza
-        a maior linha da mesma métrica
-        que continua aprovada.
+        Depois o sistema prioriza a
+        maior linha aprovada e aplica
+        apenas um pequeno bônus de
+        dificuldade no ranking.
 
-        É uma sugestão baseada em
-        dados passados, não uma
-        garantia de resultado.
+        O bônus nunca transforma uma
+        linha reprovada em aprovada.
+
+        Os dados são históricos e não
+        garantem o resultado da partida.
 
       </div>
 
@@ -2153,6 +2323,14 @@ function opportunityCard(
 
   const conceded =
     item.opponent_conceded || {};
+
+  const difficultyBonus =
+    item.difficultyBonus || 0;
+
+  const difficultyText =
+    difficultyBonus > 0
+      ? `+${difficultyBonus.toFixed(1)}`
+      : difficultyBonus.toFixed(1);
 
   return `
 
@@ -2258,7 +2436,15 @@ function opportunityCard(
             >
               Índice base:
               ${item.baseIndex}/10
-              • ranking com tendência:
+              • tendência:
+              ${
+                item.trendAdjustment > 0
+                  ? `+${item.trendAdjustment.toFixed(1)}`
+                  : item.trendAdjustment.toFixed(1)
+              }
+              • bônus da linha:
+              ${difficultyText}
+              • final:
               ${item.index}/10
             </div>
           `
@@ -2654,14 +2840,12 @@ function renderBestOpportunities(data) {
       >
 
         O sistema cruza produção,
-        histórico do adversário e
+        histórico do adversário,
         tendência dos últimos 5
-        contra os últimos 10.
-
-        Quando mais de uma linha da
-        mesma métrica é aprovada,
-        ele prioriza a maior linha
-        que ainda permanece segura.
+        contra os últimos 10 e aplica
+        um pequeno bônus de dificuldade
+        às linhas mais altas que já
+        foram aprovadas.
 
       </p>
 
@@ -2692,6 +2876,10 @@ function renderBestOpportunities(data) {
         nos Últimos 5, ter amostra
         recente suficiente e não pode
         estar enfraquecendo.
+
+        O bônus da linha é pequeno e
+        serve somente para melhorar
+        a ordem do ranking.
 
         Os indicadores são históricos
         e não representam garantia
@@ -2918,9 +3106,9 @@ function renderBestOpportunities(data) {
           disponíveis conseguiu passar
           pelos filtros principais.
 
-          Uma tendência positiva não
-          transforma automaticamente
-          uma linha descartada em
+          Bônus de linha ou tendência
+          positiva nunca transformam
+          uma linha reprovada em
           oportunidade aprovada.
 
         </p>
