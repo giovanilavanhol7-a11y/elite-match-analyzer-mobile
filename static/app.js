@@ -8,6 +8,10 @@ let currentFixture = null;
 let currentSample = 10;
 
 
+/* ======================================================
+   AUXILIARES
+====================================================== */
+
 function initials(name) {
   return (name || "?")
     .split(/\s+/)
@@ -62,6 +66,10 @@ function formatStat(value) {
 }
 
 
+/* ======================================================
+   TIMES / ESCUDOS
+====================================================== */
+
 function teamIcon(team) {
   if (team.logo) {
     return `
@@ -81,6 +89,10 @@ function teamIcon(team) {
 }
 
 
+/* ======================================================
+   JOGOS DO DIA
+====================================================== */
+
 function renderFixtures(items) {
   if (!items.length) {
     fixturesEl.innerHTML = `
@@ -97,6 +109,7 @@ function renderFixtures(items) {
       data-id="${f.id}"
     >
       <div class="fixture-top">
+
         <span class="fixture-league">
           ${f.league}
         </span>
@@ -104,9 +117,11 @@ function renderFixtures(items) {
         <span class="fixture-time">
           ${f.time || f.status || "—"}
         </span>
+
       </div>
 
       <div class="fixture-teams">
+
         <div class="mini-team">
           ${teamIcon(f.home)}
           <strong>${f.home.name}</strong>
@@ -120,6 +135,7 @@ function renderFixtures(items) {
           <strong>${f.away.name}</strong>
           ${teamIcon(f.away)}
         </div>
+
       </div>
     </button>
   `).join("");
@@ -127,7 +143,9 @@ function renderFixtures(items) {
   document
     .querySelectorAll(".fixture")
     .forEach(btn => {
+
       btn.addEventListener("click", () => {
+
         const item = items.find(
           x =>
             String(x.id) ===
@@ -136,6 +154,7 @@ function renderFixtures(items) {
 
         openAnalysis(item);
       });
+
     });
 }
 
@@ -148,6 +167,7 @@ async function loadFixtures() {
   `;
 
   try {
+
     const health = await getJSON(
       "/api/health"
     );
@@ -197,10 +217,11 @@ async function loadFixtures() {
 }
 
 
-function setBigTeam(
-  prefix,
-  team
-) {
+/* ======================================================
+   ABRIR ANÁLISE
+====================================================== */
+
+function setBigTeam(prefix, team) {
   $(`${prefix}Name`).textContent =
     team.name;
 
@@ -274,6 +295,10 @@ async function openAnalysis(fixture) {
 }
 
 
+/* ======================================================
+   CORES / FORÇA
+====================================================== */
+
 function lineColor(rate) {
   if (rate === null) {
     return "var(--muted)";
@@ -304,121 +329,146 @@ function strengthLabel(rate) {
 }
 
 
-function renderTeamLines(
+/* ======================================================
+   IDENTIFICAR TIPO DA ESTATÍSTICA
+====================================================== */
+
+function metricKey(label) {
+  const text = String(label || "")
+    .toLowerCase();
+
+  if (text.includes("gol")) {
+    return "goals";
+  }
+
+  if (text.includes("escanteio")) {
+    return "corners";
+  }
+
+  if (text.includes("finaliza")) {
+    return "shots";
+  }
+
+  if (
+    text.includes("chutes no gol") ||
+    text.includes("chute no gol")
+  ) {
+    return "sot";
+  }
+
+  if (text.includes("cart")) {
+    return "cards";
+  }
+
+  if (text.includes("falta")) {
+    return "fouls";
+  }
+
+  return text;
+}
+
+
+/* ======================================================
+   PEGAR VALOR DA LINHA
+   Exemplo:
+   +3.5 Chutes no gol -> 3.5
+====================================================== */
+
+function lineThreshold(label) {
+  const match = String(label || "")
+    .match(/\+?(\d+(?:[.,]\d+)?)/);
+
+  if (!match) {
+    return 0;
+  }
+
+  return Number(
+    match[1].replace(",", ".")
+  );
+}
+
+
+/* ======================================================
+   ESCOLHER MELHOR LINHA DE CADA MÉTRICA
+
+   Regras:
+   1 - precisa ter 80% ou mais
+   2 - maior porcentagem vence
+   3 - se porcentagem empatar,
+       linha mais alta vence
+====================================================== */
+
+function chooseBestTeamLines(
   teamName,
   lines
 ) {
-  if (!lines || !lines.length) {
-    return `
-      <div class="safe-box">
-        <strong>${teamName}</strong>
-        <p>Sem dados suficientes.</p>
-      </div>
-    `;
-  }
+  const groups = {};
 
-  return `
-    <div
-      class="safe-box"
-      style="margin-bottom:14px"
-    >
-      <strong>
-        ${teamName}
-      </strong>
+  (lines || []).forEach(line => {
 
-      <div
-        style="
-          display:grid;
-          gap:10px;
-          margin-top:12px;
-        "
-      >
-        ${lines.map(line => {
+    if (
+      line.rate === null ||
+      !line.games ||
+      line.rate < 80
+    ) {
+      return;
+    }
 
-          if (
-            line.rate === null ||
-            !line.games
-          ) {
-            return `
-              <div
-                style="
-                  padding:10px 0;
-                  border-bottom:
-                  1px solid
-                  rgba(255,255,255,.07);
-                "
-              >
-                <div
-                  style="
-                    display:flex;
-                    justify-content:
-                    space-between;
-                    gap:12px;
-                  "
-                >
-                  <span>
-                    ${line.label}
-                  </span>
+    const metric =
+      metricKey(line.label);
 
-                  <strong>
-                    Sem dados
-                  </strong>
-                </div>
-              </div>
-            `;
-          }
+    const candidate = {
+      team: teamName,
+      metric: metric,
+      label: line.label,
+      threshold:
+        lineThreshold(line.label),
+      rate: Number(line.rate),
+      hits: Number(line.hits),
+      games: Number(line.games)
+    };
 
-          return `
-            <div
-              style="
-                padding:10px 0;
-                border-bottom:
-                1px solid
-                rgba(255,255,255,.07);
-              "
-            >
-              <div
-                style="
-                  display:flex;
-                  justify-content:
-                  space-between;
-                  gap:12px;
-                  align-items:center;
-                "
-              >
-                <span>
-                  ${line.label}
-                </span>
+    const current =
+      groups[metric];
 
-                <strong
-                  style="
-                    color:
-                    ${lineColor(line.rate)}
-                  "
-                >
-                  ${line.rate}%
-                </strong>
-              </div>
+    if (!current) {
+      groups[metric] = candidate;
+      return;
+    }
 
-              <small
-                style="
-                  display:block;
-                  margin-top:4px;
-                  opacity:.75;
-                "
-              >
-                Bateu ${line.hits}
-                de ${line.games} jogos
-              </small>
-            </div>
-          `;
+    /*
+      Maior taxa histórica
+    */
+    if (
+      candidate.rate >
+      current.rate
+    ) {
+      groups[metric] = candidate;
+      return;
+    }
 
-        }).join("")}
-      </div>
-    </div>
-  `;
+    /*
+      Se a taxa for igual,
+      usa a linha mais alta.
+    */
+    if (
+      candidate.rate ===
+        current.rate &&
+      candidate.threshold >
+        current.threshold
+    ) {
+      groups[metric] = candidate;
+    }
+
+  });
+
+  return Object.values(groups);
 }
 
+
+/* ======================================================
+   MELHORES OPORTUNIDADES
+====================================================== */
 
 function getBestOpportunities(data) {
   const homeName =
@@ -435,61 +485,73 @@ function getBestOpportunities(data) {
   const awayLines =
     data.lines?.away || [];
 
-  const all = [];
+  const homeBest =
+    chooseBestTeamLines(
+      homeName,
+      homeLines
+    );
 
-  homeLines.forEach(line => {
-    if (
-      line.rate !== null &&
-      line.games &&
-      line.rate >= 80
-    ) {
-      all.push({
-        team: homeName,
-        label: line.label,
-        rate: line.rate,
-        hits: line.hits,
-        games: line.games
-      });
+  const awayBest =
+    chooseBestTeamLines(
+      awayName,
+      awayLines
+    );
+
+  const opportunities = [
+    ...homeBest,
+    ...awayBest
+  ];
+
+  opportunities.sort(
+    (a, b) => {
+
+      /*
+        Primeiro maior porcentagem.
+      */
+      if (b.rate !== a.rate) {
+        return b.rate - a.rate;
+      }
+
+      /*
+        Depois maior quantidade
+        de jogos analisados.
+      */
+      if (b.games !== a.games) {
+        return b.games - a.games;
+      }
+
+      /*
+        Depois maior número
+        de acertos.
+      */
+      if (b.hits !== a.hits) {
+        return b.hits - a.hits;
+      }
+
+      /*
+        Por último linha maior.
+      */
+      return (
+        b.threshold -
+        a.threshold
+      );
     }
-  });
+  );
 
-  awayLines.forEach(line => {
-    if (
-      line.rate !== null &&
-      line.games &&
-      line.rate >= 80
-    ) {
-      all.push({
-        team: awayName,
-        label: line.label,
-        rate: line.rate,
-        hits: line.hits,
-        games: line.games
-      });
-    }
-  });
-
-  all.sort((a, b) => {
-    if (b.rate !== a.rate) {
-      return b.rate - a.rate;
-    }
-
-    if (b.games !== a.games) {
-      return b.games - a.games;
-    }
-
-    return b.hits - a.hits;
-  });
-
-  return all;
+  return opportunities;
 }
 
+
+/* ======================================================
+   MOSTRAR MELHORES OPORTUNIDADES
+====================================================== */
 
 function renderBestOpportunities(data) {
   let container =
     $("bestOpportunities");
 
   if (!container) {
+
     const statsCard =
       analysisPanel
         .querySelectorAll(".card")[1];
@@ -502,12 +564,14 @@ function renderBestOpportunities(data) {
       document.createElement("div");
 
     box.className = "card";
-    box.id = "bestOpportunitiesCard";
+    box.id =
+      "bestOpportunitiesCard";
 
     box.style.marginTop = "16px";
 
     box.innerHTML = `
       <div class="section-head">
+
         <h2>
           Melhores oportunidades
         </h2>
@@ -515,6 +579,7 @@ function renderBestOpportunities(data) {
         <span>
           80%+
         </span>
+
       </div>
 
       <p
@@ -524,11 +589,31 @@ function renderBestOpportunities(data) {
           margin-bottom:16px;
         "
       >
-        Linhas com maior frequência
-        no histórico analisado.
+        Melhor linha histórica
+        de cada estatística.
       </p>
 
-      <div id="bestOpportunities"></div>
+      <div
+        id="bestOpportunities"
+      ></div>
+
+      <div
+        style="
+          margin-top:14px;
+          padding:12px;
+          border-radius:12px;
+          background:
+          rgba(255,255,255,.04);
+          font-size:12px;
+          line-height:1.5;
+          opacity:.75;
+        "
+      >
+        As porcentagens representam
+        apenas o histórico dos jogos
+        analisados. Não garantem que
+        a linha acontecerá novamente.
+      </div>
     `;
 
     statsCard.insertAdjacentElement(
@@ -544,24 +629,29 @@ function renderBestOpportunities(data) {
     getBestOpportunities(data);
 
   if (!opportunities.length) {
+
     container.innerHTML = `
       <div class="safe-box">
-        Nenhuma linha atingiu 80%
+        Nenhuma linha atingiu
+        pelo menos 80%
         neste recorte.
       </div>
     `;
+
     return;
   }
 
   container.innerHTML =
     opportunities
       .map((item, index) => `
+
         <div
           class="safe-box"
           style="
             margin-bottom:12px;
           "
         >
+
           <div
             style="
               display:flex;
@@ -571,7 +661,9 @@ function renderBestOpportunities(data) {
               align-items:flex-start;
             "
           >
+
             <div>
+
               <div
                 style="
                   font-size:12px;
@@ -579,23 +671,29 @@ function renderBestOpportunities(data) {
                   margin-bottom:4px;
                 "
               >
-                ${index + 1}. ${item.team}
+                ${index + 1}.
+                ${item.team}
               </div>
 
               <strong>
                 ${item.label}
               </strong>
+
             </div>
+
 
             <div
               style="
                 text-align:right;
               "
             >
+
               <strong
                 style="
                   color:
-                  ${lineColor(item.rate)};
+                  ${lineColor(
+                    item.rate
+                  )};
                   font-size:18px;
                 "
               >
@@ -609,10 +707,15 @@ function renderBestOpportunities(data) {
                   opacity:.8;
                 "
               >
-                ${strengthLabel(item.rate)}
+                ${strengthLabel(
+                  item.rate
+                )}
               </small>
+
             </div>
+
           </div>
+
 
           <small
             style="
@@ -624,11 +727,167 @@ function renderBestOpportunities(data) {
             Bateu ${item.hits}
             de ${item.games} jogos
           </small>
+
         </div>
+
       `)
       .join("");
 }
 
+
+/* ======================================================
+   HISTÓRICO COMPLETO
+====================================================== */
+
+function renderTeamLines(
+  teamName,
+  lines
+) {
+  if (!lines || !lines.length) {
+
+    return `
+      <div class="safe-box">
+        <strong>${teamName}</strong>
+        <p>
+          Sem dados suficientes.
+        </p>
+      </div>
+    `;
+  }
+
+  return `
+    <div
+      class="safe-box"
+      style="
+        margin-bottom:14px
+      "
+    >
+
+      <strong>
+        ${teamName}
+      </strong>
+
+      <div
+        style="
+          display:grid;
+          gap:10px;
+          margin-top:12px;
+        "
+      >
+
+        ${lines.map(line => {
+
+          if (
+            line.rate === null ||
+            !line.games
+          ) {
+
+            return `
+              <div
+                style="
+                  padding:10px 0;
+                  border-bottom:
+                  1px solid
+                  rgba(
+                    255,
+                    255,
+                    255,
+                    .07
+                  );
+                "
+              >
+
+                <div
+                  style="
+                    display:flex;
+                    justify-content:
+                    space-between;
+                    gap:12px;
+                  "
+                >
+
+                  <span>
+                    ${line.label}
+                  </span>
+
+                  <strong>
+                    Sem dados
+                  </strong>
+
+                </div>
+
+              </div>
+            `;
+          }
+
+          return `
+            <div
+              style="
+                padding:10px 0;
+                border-bottom:
+                1px solid
+                rgba(
+                  255,
+                  255,
+                  255,
+                  .07
+                );
+              "
+            >
+
+              <div
+                style="
+                  display:flex;
+                  justify-content:
+                  space-between;
+                  gap:12px;
+                  align-items:center;
+                "
+              >
+
+                <span>
+                  ${line.label}
+                </span>
+
+                <strong
+                  style="
+                    color:
+                    ${lineColor(
+                      line.rate
+                    )}
+                  "
+                >
+                  ${line.rate}%
+                </strong>
+
+              </div>
+
+              <small
+                style="
+                  display:block;
+                  margin-top:4px;
+                  opacity:.75;
+                "
+              >
+                Bateu ${line.hits}
+                de ${line.games} jogos
+              </small>
+
+            </div>
+          `;
+
+        }).join("")}
+
+      </div>
+
+    </div>
+  `;
+}
+
+
+/* ======================================================
+   RENDERIZAR HISTÓRICO
+====================================================== */
 
 function renderLines(data) {
   let linesContainer =
@@ -662,15 +921,22 @@ function renderLines(data) {
     }
 
     automaticSection.innerHTML = `
+
       <div class="section-head">
+
         <h2>
           Histórico das linhas
         </h2>
 
-        <span id="linesSampleInfo">
-          ${realSample} jogos encontrados
+        <span
+          id="linesSampleInfo"
+        >
+          ${realSample}
+          jogos encontrados
         </span>
+
       </div>
+
 
       <p
         class="muted"
@@ -684,7 +950,11 @@ function renderLines(data) {
         analisados.
       </p>
 
-      <div id="linesResults"></div>
+
+      <div
+        id="linesResults"
+      ></div>
+
     `;
 
     linesContainer =
@@ -696,8 +966,10 @@ function renderLines(data) {
       $("linesSampleInfo");
 
     if (sampleInfo) {
+
       sampleInfo.textContent =
         `${realSample} jogos encontrados`;
+
     }
   }
 
@@ -708,6 +980,7 @@ function renderLines(data) {
     data.lines?.away || [];
 
   linesContainer.innerHTML = `
+
     ${renderTeamLines(
       data.home?.name ||
       currentFixture.home.name,
@@ -719,11 +992,17 @@ function renderLines(data) {
       currentFixture.away.name,
       awayLines
     )}
+
   `;
 }
 
 
+/* ======================================================
+   CARREGAR ANÁLISE
+====================================================== */
+
 async function loadAnalysis() {
+
   $("statsList").innerHTML = `
     <div class="loader">
       Calculando estatísticas...
@@ -739,30 +1018,40 @@ async function loadAnalysis() {
     $("sourceLabel").textContent =
       data.source || "Fonte";
 
+
     const homeUsed =
       data.home?.matches_used;
 
     const awayUsed =
       data.away?.matches_used;
 
+
     if (
       homeUsed !== undefined &&
       awayUsed !== undefined
     ) {
+
       $("sampleInfo").textContent =
         `${homeUsed} casa • ${awayUsed} fora`;
+
     } else {
+
       $("sampleInfo").textContent =
         `${data.sample_size || currentSample} jogos usados`;
+
     }
+
 
     $("statsList").innerHTML =
       (data.stats || [])
         .map(s => `
+
           <div class="stat-row">
 
             <div class="stat-value">
-              ${formatStat(s.home)}
+              ${formatStat(
+                s.home
+              )}
             </div>
 
             <div class="stat-label">
@@ -770,21 +1059,32 @@ async function loadAnalysis() {
             </div>
 
             <div class="stat-value">
-              ${formatStat(s.away)}
+              ${formatStat(
+                s.away
+              )}
             </div>
 
           </div>
+
         `)
         .join("") ||
+
       `
         <div class="empty">
-          Sem estatísticas disponíveis.
+          Sem estatísticas
+          disponíveis.
         </div>
       `;
 
-    renderBestOpportunities(data);
 
-    renderLines(data);
+    renderBestOpportunities(
+      data
+    );
+
+    renderLines(
+      data
+    );
+
 
   } catch (error) {
 
@@ -797,12 +1097,20 @@ async function loadAnalysis() {
 }
 
 
+/* ======================================================
+   BOTÃO ATUALIZAR
+====================================================== */
+
 $("refreshBtn")
   .addEventListener(
     "click",
     loadFixtures
   );
 
+
+/* ======================================================
+   VOLTAR
+====================================================== */
 
 $("backBtn")
   .addEventListener(
@@ -824,9 +1132,14 @@ $("backBtn")
       fixturesEl.classList.remove(
         "hidden"
       );
+
     }
   );
 
+
+/* ======================================================
+   ÚLTIMOS 5 / ÚLTIMOS 10
+====================================================== */
 
 document
   .querySelectorAll(".tab")
@@ -844,19 +1157,27 @@ document
         document
           .querySelectorAll(".tab")
           .forEach(b =>
+
             b.classList.toggle(
               "active",
               b === btn
             )
+
           );
 
         if (currentFixture) {
+
           await loadAnalysis();
+
         }
       }
     );
 
   });
 
+
+/* ======================================================
+   INICIAR
+====================================================== */
 
 loadFixtures();
