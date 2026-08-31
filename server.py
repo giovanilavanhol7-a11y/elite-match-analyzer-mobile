@@ -32,6 +32,9 @@ LEAGUES_CACHE_SECONDS = 3600
 LEAGUE_MATCHES_CACHE = {}
 LEAGUE_MATCHES_CACHE_SECONDS = 1800
 
+MATCH_DATA_CACHE = {}
+MATCH_DATA_CACHE_SECONDS = 1800
+
 
 # =========================================================
 # API
@@ -66,6 +69,28 @@ def api_get(path):
         return body["data"]
 
     return body
+
+
+def api_get_cached(path, ttl=MATCH_DATA_CACHE_SECONDS):
+    now = time.time()
+    cached = MATCH_DATA_CACHE.get(path)
+
+    if (
+        cached
+        and (
+            now - cached["created_at"] < ttl
+        )
+    ):
+        return cached["data"]
+
+    data = api_get(path)
+
+    MATCH_DATA_CACHE[path] = {
+        "created_at": now,
+        "data": data
+    }
+
+    return data
 
 
 # =========================================================
@@ -331,7 +356,7 @@ def normalize_match(match):
 
 def get_stats(match_id):
     try:
-        data = api_get(
+        data = api_get_cached(
             f"v1/matches/{match_id}/stats"
         )
     except Exception:
@@ -391,7 +416,7 @@ def find_exact_stat(stats, names, home_side):
 
 def shot_events(match_id, team_id):
     try:
-        data = api_get(
+        data = api_get_cached(
             f"v1/matches/{match_id}/shots"
         )
     except Exception:
@@ -428,7 +453,7 @@ def shot_events(match_id, team_id):
 
 def sot_from_shots(match_id, team_id):
     try:
-        data = api_get(
+        data = api_get_cached(
             f"v1/matches/{match_id}/shots"
         )
     except Exception:
@@ -479,7 +504,7 @@ def sot_from_shots(match_id, team_id):
 
 def get_card_breakdown(match_id, team_id):
     try:
-        data = api_get(
+        data = api_get_cached(
             f"v1/matches/{match_id}/events"
         )
     except Exception:
@@ -704,126 +729,58 @@ def recent_matches(
     if not league_id:
         return []
 
+    # SOMENTE A TEMPORADA ATUAL.
+    # O endpoint sem ?season= usa a temporada corrente da liga
+    # na PitchAPI. Não buscamos temporada anterior.
+    try:
+        matches = get_league_matches_cached(
+            league_id,
+            None
+        )
+    except Exception:
+        return []
+
+    ordered = list(matches)
+
+    ordered.sort(
+        key=lambda item: (
+            item.get("time_utc")
+            or item.get("date")
+            or ""
+        ),
+        reverse=True
+    )
+
     result = []
     seen_ids = set()
 
-    # Primeiro consulta as temporadas anunciadas pela própria liga,
-    # começando pelas mais recentes. Isso permite completar os 10
-    # jogos com a temporada anterior quando a temporada atual ainda
-    # está no começo.
-    seasons = get_league_seasons(
-        league_id
-    )
+    for match in ordered:
+        match_id = match.get("id")
 
-    # Segurança: se a API não devolver temporadas, mantém o
-    # comportamento antigo consultando a temporada padrão.
-    season_queries = (
-        seasons[:4]
-        if seasons
-        else [None]
-    )
-
-    for season in season_queries:
-        try:
-            matches = get_league_matches_cached(
-                league_id,
-                season
-            )
-        except Exception:
+        if not match_id:
             continue
 
-        ordered = list(matches)
+        if match_id == current_id:
+            continue
 
-        ordered.sort(
-            key=lambda item: (
-                item.get("time_utc")
-                or item.get("date")
-                or ""
-            ),
-            reverse=True
-        )
+        if match_id in seen_ids:
+            continue
 
-        for match in ordered:
-            match_id = match.get("id")
+        if not _finished_match_status(match):
+            continue
 
-            if not match_id:
-                continue
+        if not _match_fits_team_venue(
+            match,
+            team_id,
+            venue
+        ):
+            continue
 
-            if match_id == current_id:
-                continue
+        seen_ids.add(match_id)
+        result.append(match)
 
-            if match_id in seen_ids:
-                continue
-
-            if not _finished_match_status(
-                match
-            ):
-                continue
-
-            if not _match_fits_team_venue(
-                match,
-                team_id,
-                venue
-            ):
-                continue
-
-            seen_ids.add(match_id)
-            result.append(match)
-
-            if len(result) >= limit:
-                return result[:limit]
-
-    # Fallback final para a temporada padrão, caso as temporadas
-    # explícitas não tenham completado a amostra.
-    if len(result) < limit:
-        try:
-            matches = get_league_matches_cached(
-                league_id,
-                None
-            )
-        except Exception:
-            matches = []
-
-        ordered = list(matches)
-
-        ordered.sort(
-            key=lambda item: (
-                item.get("time_utc")
-                or item.get("date")
-                or ""
-            ),
-            reverse=True
-        )
-
-        for match in ordered:
-            match_id = match.get("id")
-
-            if not match_id:
-                continue
-
-            if match_id == current_id:
-                continue
-
-            if match_id in seen_ids:
-                continue
-
-            if not _finished_match_status(
-                match
-            ):
-                continue
-
-            if not _match_fits_team_venue(
-                match,
-                team_id,
-                venue
-            ):
-                continue
-
-            seen_ids.add(match_id)
-            result.append(match)
-
-            if len(result) >= limit:
-                break
+        if len(result) >= limit:
+            break
 
     return result[:limit]
 
@@ -993,7 +950,7 @@ def team_average(
 
     history = []
 
-    for match in matches:
+    def process_match(match):
         own_row = team_match_values(
             match,
             team_id
@@ -1015,6 +972,57 @@ def team_average(
                 for key in keys
             }
 
+        home = match.get("home_team") or {}
+        away = match.get("away_team") or {}
+
+        return {
+            "match_id": match.get("id"),
+            "home": home.get("name", ""),
+            "away": away.get("name", ""),
+            "produced": own_row,
+            "conceded": conceded_row
+        }
+
+    rows_by_id = {}
+
+    # Bounded concurrency: enough to avoid Render timeout without
+    # creating a large burst against PitchAPI.
+    if matches:
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(matches))
+        ) as executor:
+            future_map = {
+                executor.submit(
+                    process_match,
+                    match
+                ): match.get("id")
+                for match in matches
+            }
+
+            for future in as_completed(
+                future_map
+            ):
+                match_id = future_map[future]
+
+                try:
+                    rows_by_id[
+                        match_id
+                    ] = future.result()
+                except Exception:
+                    continue
+
+    # Preserve chronological order from recent_matches.
+    for match in matches:
+        row = rows_by_id.get(
+            match.get("id")
+        )
+
+        if not row:
+            continue
+
+        own_row = row["produced"]
+        conceded_row = row["conceded"]
+
         for key in keys:
             produced[key].append(
                 own_row.get(key)
@@ -1023,19 +1031,10 @@ def team_average(
                 conceded_row.get(key)
             )
 
-        home = match.get("home_team") or {}
-        away = match.get("away_team") or {}
-
-        history.append({
-            "match_id": match.get("id"),
-            "home": home.get("name", ""),
-            "away": away.get("name", ""),
-            "produced": own_row,
-            "conceded": conceded_row
-        })
+        history.append(row)
 
     return {
-        "matches_used": len(matches),
+        "matches_used": len(history),
         "venue": venue,
         "averages": {
             key: average(values)
@@ -1438,7 +1437,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "RECENT-SEASONS-V7"
+        "version": "FOOTBALL-DATA-TEST-V10"
     })
 
 
@@ -1654,6 +1653,156 @@ def fixtures_from_all_leagues(
                 matches.append(match)
 
     return matches
+
+
+@app.get("/api/debug/football-data")
+def debug_football_data():
+    result = {
+        "configured": bool(
+            FOOTBALL_DATA_KEY
+        ),
+        "status": None,
+        "today": {
+            "count": 0,
+            "lecce": [],
+            "roma": []
+        }
+    }
+
+    if not FOOTBALL_DATA_KEY:
+        return jsonify({
+            **result,
+            "ok": False,
+            "error": (
+                "FOOTBALL_DATA_KEY não configurada."
+            )
+        }), 500
+
+    try:
+        status_payload = football_data_get(
+            "status"
+        )
+
+        status_data = (
+            status_payload.get("data")
+            if isinstance(
+                status_payload,
+                dict
+            )
+            else None
+        )
+
+        # Nunca devolvemos a chave.
+        result["status"] = status_data
+
+        fixtures_payload = football_data_get(
+            "fixtures",
+            params={
+                "status": "all",
+                "per_page": 100,
+                "lang": "pt"
+            }
+        )
+
+        fixtures = []
+
+        if isinstance(
+            fixtures_payload,
+            dict
+        ):
+            fixtures = (
+                fixtures_payload.get("data")
+                or []
+            )
+
+        result["today"]["count"] = len(
+            fixtures
+        )
+
+        for fixture in fixtures:
+            if not isinstance(
+                fixture,
+                dict
+            ):
+                continue
+
+            teams = (
+                fixture.get("teams")
+                or {}
+            )
+
+            home = (
+                teams.get("home")
+                or {}
+            )
+
+            away = (
+                teams.get("away")
+                or {}
+            )
+
+            compact = {
+                "fixture_id": fixture.get(
+                    "id"
+                ),
+                "kickoff_utc": fixture.get(
+                    "kickoff_utc"
+                ),
+                "status": fixture.get(
+                    "status"
+                ),
+                "league": (
+                    fixture.get("league")
+                    or {}
+                ).get("name"),
+                "home": {
+                    "id": home.get("id"),
+                    "name": home.get("name")
+                },
+                "away": {
+                    "id": away.get("id"),
+                    "name": away.get("name")
+                }
+            }
+
+            names = " ".join([
+                str(
+                    home.get("name")
+                    or ""
+                ),
+                str(
+                    away.get("name")
+                    or ""
+                )
+            ]).lower()
+
+            if "lecce" in names:
+                result[
+                    "today"
+                ][
+                    "lecce"
+                ].append(
+                    compact
+                )
+
+            if "roma" in names:
+                result[
+                    "today"
+                ][
+                    "roma"
+                ].append(
+                    compact
+                )
+
+        result["ok"] = True
+
+        return jsonify(result)
+
+    except Exception as error:
+        result["ok"] = False
+        result["error"] = str(error)
+
+        return jsonify(result), 502
 
 
 @app.get("/api/fixtures/today")
@@ -1926,7 +2075,7 @@ def build_analysis_payload(
 
     return {
         "source": "PITCHAPI",
-        "version": "RECENT-SEASONS-V7",
+        "version": "FOOTBALL-DATA-TEST-V10",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -2091,7 +2240,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI",
-            "version": "RECENT-SEASONS-V7",
+            "version": "FOOTBALL-DATA-TEST-V10",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
