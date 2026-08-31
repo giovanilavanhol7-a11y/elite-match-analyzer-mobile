@@ -14,6 +14,8 @@ app = Flask(__name__, static_folder="static")
 
 API_KEY = os.getenv("PITCHAPI_KEY", "").strip()
 API_BASE = "https://api.pitchapi.dev"
+FOOTBALL_DATA_KEY = os.getenv("FOOTBALL_DATA_KEY", "").strip()
+FOOTBALL_DATA_BASE = "https://api.5dollarfootballapi.com/v1"
 TIMEZONE = "America/Sao_Paulo"
 
 FIXTURES_CACHE = {
@@ -1413,6 +1415,51 @@ def build_trend_lines(
     return result
 
 
+def football_data_get(path, params=None, timeout=12):
+    if not FOOTBALL_DATA_KEY:
+        raise RuntimeError(
+            "FOOTBALL_DATA_KEY não configurada no Render."
+        )
+
+    url = (
+        f"{FOOTBALL_DATA_BASE}/"
+        f"{path.lstrip('/')}"
+    )
+
+    response = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {FOOTBALL_DATA_KEY}",
+            "Accept": "application/json"
+        },
+        params=params or {},
+        timeout=timeout
+    )
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {
+            "message": "Resposta não-JSON da nova API."
+        }
+
+    if response.status_code >= 400:
+        message = ""
+        if isinstance(payload, dict):
+            message = str(
+                payload.get("message")
+                or payload.get("error")
+                or ""
+            ).strip()
+
+        raise RuntimeError(
+            f"Nova API HTTP {response.status_code}"
+            + (f": {message}" if message else "")
+        )
+
+    return payload
+
+
 # =========================================================
 # SITE
 # =========================================================
@@ -1437,7 +1484,7 @@ def health():
         "api_configured": bool(API_KEY),
         "demo_mode": False,
         "timezone": TIMEZONE,
-        "version": "FOOTBALL-DATA-TEST-V10"
+        "version": "FOOTBALL-DATA-TEST-V10-1"
     })
 
 
@@ -2075,7 +2122,7 @@ def build_analysis_payload(
 
     return {
         "source": "PITCHAPI",
-        "version": "FOOTBALL-DATA-TEST-V10",
+        "version": "FOOTBALL-DATA-TEST-V10-1",
         "sample_size": sample,
         "match_info": match_context,
         "h2h": h2h,
@@ -2240,7 +2287,7 @@ def analysis(fixture_id):
     except Exception as error:
         return jsonify({
             "source": "PITCHAPI",
-            "version": "FOOTBALL-DATA-TEST-V10",
+            "version": "FOOTBALL-DATA-TEST-V10-1",
             "sample_size": sample,
             "match_info": {},
             "h2h": empty_h2h(),
