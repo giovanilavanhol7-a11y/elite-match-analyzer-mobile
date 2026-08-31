@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
 import os
 import time
@@ -10,43 +11,27 @@ import requests
 
 app = Flask(__name__, static_folder="static")
 
-
-# =========================================================
-# CONFIGURAÇÕES
-# =========================================================
-
 API_KEY = os.getenv("PITCHAPI_KEY", "").strip()
-
 API_BASE = "https://api.pitchapi.dev"
-
 TIMEZONE = "America/Sao_Paulo"
-
 
 FIXTURES_CACHE = {
     "date": None,
     "created_at": 0,
     "matches": []
 }
-
 FIXTURES_CACHE_SECONDS = 300
 
 
 # =========================================================
-# PITCHAPI
+# API
 # =========================================================
 
 def api_get(path):
-
     if not API_KEY:
-        raise RuntimeError(
-            "PITCHAPI_KEY não configurada."
-        )
+        raise RuntimeError("PITCHAPI_KEY não configurada.")
 
-    url = (
-        API_BASE
-        + "/"
-        + path.lstrip("/")
-    )
+    url = API_BASE + "/" + path.lstrip("/")
 
     response = requests.get(
         url,
@@ -59,22 +44,15 @@ def api_get(path):
 
     try:
         body = response.json()
-
     except Exception:
         raise RuntimeError(
-            "Resposta inválida da PitchAPI. "
-            f"HTTP {response.status_code}"
+            f"Resposta inválida da API. HTTP {response.status_code}"
         )
 
     if not response.ok:
-        raise RuntimeError(
-            str(body)
-        )
+        raise RuntimeError(str(body))
 
-    if (
-        isinstance(body, dict)
-        and "data" in body
-    ):
+    if isinstance(body, dict) and "data" in body:
         return body["data"]
 
     return body
@@ -85,14 +63,10 @@ def api_get(path):
 # =========================================================
 
 def number(value):
-
     if value is None:
         return None
 
-    if isinstance(
-        value,
-        (int, float)
-    ):
+    if isinstance(value, (int, float)):
         return float(value)
 
     text = str(value).strip()
@@ -106,13 +80,11 @@ def number(value):
 
     try:
         return float(text)
-
     except Exception:
         return None
 
 
 def average(values):
-
     valid = [
         float(value)
         for value in values
@@ -129,88 +101,60 @@ def average(values):
 
 
 def parse_utc(value):
-
     if not value:
         return None
 
     try:
-
         return datetime.fromisoformat(
-            str(value).replace(
-                "Z",
-                "+00:00"
-            )
+            str(value).replace("Z", "+00:00")
         )
-
     except Exception:
         return None
 
 
 def match_time(value):
-
     dt = parse_utc(value)
 
     if dt is None:
         return ""
 
     try:
-
-        local = dt.astimezone(
+        return dt.astimezone(
             ZoneInfo(TIMEZONE)
-        )
-
-        return local.strftime(
-            "%H:%M"
-        )
-
+        ).strftime("%H:%M")
     except Exception:
         return ""
 
 
 def match_date(value):
-
     dt = parse_utc(value)
 
     if dt is None:
         return ""
 
     try:
-
-        local = dt.astimezone(
+        return dt.astimezone(
             ZoneInfo(TIMEZONE)
-        )
-
-        return local.strftime(
-            "%d/%m/%Y"
-        )
-
+        ).strftime("%d/%m/%Y")
     except Exception:
         return ""
 
 
 def local_match_day(value):
-
     dt = parse_utc(value)
 
     if dt is None:
         return None
 
     try:
-
-        local = dt.astimezone(
+        return dt.astimezone(
             ZoneInfo(TIMEZONE)
-        )
-
-        return local.strftime(
-            "%Y-%m-%d"
-        )
-
+        ).strftime("%Y-%m-%d")
     except Exception:
         return None
 
 
 def normalize_name(value):
-
     return (
         str(value)
         .strip()
@@ -221,7 +165,6 @@ def normalize_name(value):
 
 
 def clean_text(value):
-
     if value is None:
         return ""
 
@@ -233,49 +176,20 @@ def clean_text(value):
 # =========================================================
 
 def build_match_context(fixture):
-
-    referee = clean_text(
-        fixture.get("referee")
-    )
-
-    stadium = clean_text(
-        fixture.get("stadium")
-    )
-
-    round_name = clean_text(
-        fixture.get("round_name")
-    )
-
-    date = clean_text(
-        fixture.get("date")
-    )
-
-    status = clean_text(
-        fixture.get("status")
-    )
-
-    kickoff = match_time(
-        fixture.get("time_utc")
-    )
+    referee = clean_text(fixture.get("referee"))
+    stadium = clean_text(fixture.get("stadium"))
+    round_name = clean_text(fixture.get("round_name"))
+    date = clean_text(fixture.get("date"))
+    status = clean_text(fixture.get("status"))
+    kickoff = match_time(fixture.get("time_utc"))
 
     return {
-        "referee":
-            referee or None,
-
-        "stadium":
-            stadium or None,
-
-        "round":
-            round_name or None,
-
-        "date":
-            date or None,
-
-        "time":
-            kickoff or None,
-
-        "status":
-            status or None
+        "referee": referee or None,
+        "stadium": stadium or None,
+        "round": round_name or None,
+        "date": date or None,
+        "time": kickoff or None,
+        "status": status or None
     }
 
 
@@ -284,7 +198,6 @@ def build_match_context(fixture):
 # =========================================================
 
 def empty_h2h():
-
     return {
         "available": False,
         "total_matches": 0,
@@ -296,187 +209,79 @@ def empty_h2h():
 
 
 def get_h2h(fixture_id):
-
     try:
-
         data = api_get(
             f"v1/matches/{fixture_id}/h2h"
         )
-
     except Exception:
         return empty_h2h()
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return empty_h2h()
 
     recent = []
 
-    for match in (
-        data.get("recent_matches")
-        or []
-    ):
-
-        if not match.get(
-            "finished",
-            False
-        ):
+    for match in data.get("recent_matches") or []:
+        if not match.get("finished", False):
             continue
 
         home = (
             match.get("home")
-            or
-            match.get("home_team")
+            or match.get("home_team")
             or {}
         )
 
         away = (
             match.get("away")
-            or
-            match.get("away_team")
+            or match.get("away_team")
             or {}
         )
 
-        score_home = number(
-            match.get("score_home")
-        )
+        score_home = number(match.get("score_home"))
+        score_away = number(match.get("score_away"))
 
-        score_away = number(
-            match.get("score_away")
-        )
-
-        if (
-            score_home is None
-            or
-            score_away is None
-        ):
+        if score_home is None or score_away is None:
             continue
 
         recent.append({
-            "date":
-                match_date(
-                    match.get(
-                        "time_utc"
-                    )
-                ),
-
-            "time_utc":
-                match.get(
-                    "time_utc"
-                ),
-
+            "date": match_date(match.get("time_utc")),
+            "time_utc": match.get("time_utc"),
             "home": {
-                "id":
-                    home.get("id"),
-
-                "name":
-                    home.get(
-                        "name",
-                        "Mandante"
-                    )
+                "id": home.get("id"),
+                "name": home.get("name", "Mandante")
             },
-
             "away": {
-                "id":
-                    away.get("id"),
-
-                "name":
-                    away.get(
-                        "name",
-                        "Visitante"
-                    )
+                "id": away.get("id"),
+                "name": away.get("name", "Visitante")
             },
-
-            "score_home":
-                int(score_home),
-
-            "score_away":
-                int(score_away),
-
-            "finished":
-                True
+            "score_home": int(score_home),
+            "score_away": int(score_away),
+            "finished": True
         })
 
     recent.sort(
-        key=lambda item: (
-            item.get("time_utc")
-            or ""
-        ),
+        key=lambda item: item.get("time_utc") or "",
         reverse=True
     )
 
-    home_team = (
-        data.get("home_team")
-        or {}
-    )
-
-    away_team = (
-        data.get("away_team")
-        or {}
-    )
+    home_team = data.get("home_team") or {}
+    away_team = data.get("away_team") or {}
 
     return {
-        "available":
-            True,
-
+        "available": True,
         "home_team": {
-            "id":
-                home_team.get("id"),
-
-            "name":
-                home_team.get(
-                    "name",
-                    "Mandante"
-                )
+            "id": home_team.get("id"),
+            "name": home_team.get("name", "Mandante")
         },
-
         "away_team": {
-            "id":
-                away_team.get("id"),
-
-            "name":
-                away_team.get(
-                    "name",
-                    "Visitante"
-                )
+            "id": away_team.get("id"),
+            "name": away_team.get("name", "Visitante")
         },
-
-        "total_matches":
-            int(
-                data.get(
-                    "total_matches"
-                )
-                or 0
-            ),
-
-        "home_wins":
-            int(
-                data.get(
-                    "home_wins"
-                )
-                or 0
-            ),
-
-        "draws":
-            int(
-                data.get(
-                    "draws"
-                )
-                or 0
-            ),
-
-        "away_wins":
-            int(
-                data.get(
-                    "away_wins"
-                )
-                or 0
-            ),
-
-        "recent_matches":
-            recent[:10]
+        "total_matches": int(data.get("total_matches") or 0),
+        "home_wins": int(data.get("home_wins") or 0),
+        "draws": int(data.get("draws") or 0),
+        "away_wins": int(data.get("away_wins") or 0),
+        "recent_matches": recent[:10]
     }
 
 
@@ -485,88 +290,28 @@ def get_h2h(fixture_id):
 # =========================================================
 
 def normalize_match(match):
-
-    league = (
-        match.get("league")
-        or {}
-    )
-
-    home = (
-        match.get("home_team")
-        or {}
-    )
-
-    away = (
-        match.get("away_team")
-        or {}
-    )
+    league = match.get("league") or {}
+    home = match.get("home_team") or {}
+    away = match.get("away_team") or {}
 
     return {
-        "id":
-            match.get("id"),
-
-        "league":
-            league.get(
-                "name",
-                "Competição"
-            ),
-
-        "league_id":
-            league.get("id"),
-
-        "league_logo":
-            league.get(
-                "image_url",
-                ""
-            ),
-
-        "time":
-            match_time(
-                match.get("time_utc")
-            ),
-
-        "status":
-            match.get(
-                "status",
-                ""
-            ),
-
+        "id": match.get("id"),
+        "league": league.get("name", "Competição"),
+        "league_id": league.get("id"),
+        "league_logo": league.get("image_url", ""),
+        "time": match_time(match.get("time_utc")),
+        "status": match.get("status", ""),
         "home": {
-            "id":
-                home.get("id"),
-
-            "name":
-                home.get(
-                    "name",
-                    "Mandante"
-                ),
-
-            "logo":
-                home.get(
-                    "image_url",
-                    ""
-                )
+            "id": home.get("id"),
+            "name": home.get("name", "Mandante"),
+            "logo": home.get("image_url", "")
         },
-
         "away": {
-            "id":
-                away.get("id"),
-
-            "name":
-                away.get(
-                    "name",
-                    "Visitante"
-                ),
-
-            "logo":
-                away.get(
-                    "image_url",
-                    ""
-                )
+            "id": away.get("id"),
+            "name": away.get("name", "Visitante"),
+            "logo": away.get("image_url", "")
         },
-
-        "demo":
-            False
+        "demo": False
     }
 
 
@@ -575,119 +320,57 @@ def normalize_match(match):
 # =========================================================
 
 def get_stats(match_id):
-
     try:
-
         data = api_get(
             f"v1/matches/{match_id}/stats"
         )
-
     except Exception:
         return []
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return []
 
     result = []
 
-    for period in (
-        data.get("periods")
-        or []
-    ):
-
+    for period in data.get("periods") or []:
         period_name = str(
-            period.get(
-                "period",
-                ""
-            )
+            period.get("period", "")
         ).strip().lower()
 
         if period_name != "all":
             continue
 
-        for group in (
-            period.get("groups")
-            or []
-        ):
-
-            for item in (
-                group.get("items")
-                or []
-            ):
-
+        for group in period.get("groups") or []:
+            for item in group.get("items") or []:
                 result.append({
-                    "key":
-                        str(
-                            item.get(
-                                "key",
-                                ""
-                            )
-                        ).strip().lower(),
-
-                    "title":
-                        str(
-                            item.get(
-                                "title",
-                                ""
-                            )
-                        ).strip().lower(),
-
-                    "home":
-                        number(
-                            item.get(
-                                "home"
-                            )
-                        ),
-
-                    "away":
-                        number(
-                            item.get(
-                                "away"
-                            )
-                        )
+                    "key": str(
+                        item.get("key", "")
+                    ).strip().lower(),
+                    "title": str(
+                        item.get("title", "")
+                    ).strip().lower(),
+                    "home": number(item.get("home")),
+                    "away": number(item.get("away"))
                 })
 
     return result
 
 
-def find_exact_stat(
-    stats,
-    names,
-    home_side
-):
-
+def find_exact_stat(stats, names, home_side):
     wanted = {
         normalize_name(name)
         for name in names
     }
 
     for item in stats:
+        key = normalize_name(item.get("key"))
+        title = normalize_name(item.get("title"))
 
-        key = normalize_name(
-            item.get("key")
-        )
-
-        title = normalize_name(
-            item.get("title")
-        )
-
-        if (
-            key in wanted
-            or
-            title in wanted
-        ):
-
+        if key in wanted or title in wanted:
             if home_side:
-                return item.get(
-                    "home"
-                )
+                return item.get("home")
 
-            return item.get(
-                "away"
-            )
+            return item.get("away")
 
     return None
 
@@ -696,29 +379,18 @@ def find_exact_stat(
 # FINALIZAÇÕES
 # =========================================================
 
-def shot_events(
-    match_id,
-    team_id
-):
-
+def shot_events(match_id, team_id):
     try:
-
         data = api_get(
             f"v1/matches/{match_id}/shots"
         )
-
     except Exception:
         return None
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return None
 
-    periods = data.get(
-        "periods"
-    )
+    periods = data.get("periods")
 
     if periods is None:
         return None
@@ -727,16 +399,8 @@ def shot_events(
     found = False
 
     for period in periods:
-
-        for shot in (
-            period.get("shots")
-            or []
-        ):
-
-            if (
-                shot.get("team_id")
-                != team_id
-            ):
+        for shot in period.get("shots") or []:
+            if shot.get("team_id") != team_id:
                 continue
 
             found = True
@@ -752,29 +416,18 @@ def shot_events(
 # CHUTES NO GOL
 # =========================================================
 
-def sot_from_shots(
-    match_id,
-    team_id
-):
-
+def sot_from_shots(match_id, team_id):
     try:
-
         data = api_get(
             f"v1/matches/{match_id}/shots"
         )
-
     except Exception:
         return None
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return None
 
-    periods = data.get(
-        "periods"
-    )
+    periods = data.get("periods")
 
     if periods is None:
         return None
@@ -783,27 +436,14 @@ def sot_from_shots(
     found = False
 
     for period in periods:
-
-        for shot in (
-            period.get("shots")
-            or []
-        ):
-
-            if (
-                shot.get("team_id")
-                != team_id
-            ):
+        for shot in period.get("shots") or []:
+            if shot.get("team_id") != team_id:
                 continue
 
             found = True
 
             event_type = (
-                str(
-                    shot.get(
-                        "event_type",
-                        ""
-                    )
-                )
+                str(shot.get("event_type", ""))
                 .strip()
                 .lower()
                 .replace("_", "")
@@ -827,29 +467,18 @@ def sot_from_shots(
 # CARTÕES
 # =========================================================
 
-def get_card_breakdown(
-    match_id,
-    team_id
-):
-
+def get_card_breakdown(match_id, team_id):
     try:
-
         data = api_get(
             f"v1/matches/{match_id}/events"
         )
-
     except Exception:
         return None
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return None
 
-    events = data.get(
-        "events"
-    )
+    events = data.get("events")
 
     if events is None:
         return None
@@ -858,20 +487,11 @@ def get_card_breakdown(
     red = 0
 
     for event in events:
-
-        if (
-            event.get("team_id")
-            != team_id
-        ):
+        if event.get("team_id") != team_id:
             continue
 
         event_type = (
-            str(
-                event.get(
-                    "event_type",
-                    ""
-                )
-            )
+            str(event.get("event_type", ""))
             .strip()
             .lower()
             .replace("_", "")
@@ -881,21 +501,13 @@ def get_card_breakdown(
 
         if event_type == "yellowcard":
             yellow += 1
-
         elif event_type == "redcard":
             red += 1
 
     return {
-        "yellow_cards":
-            float(yellow),
-
-        "red_cards":
-            float(red),
-
-        "cards":
-            float(
-                yellow + red
-            )
+        "yellow_cards": float(yellow),
+        "red_cards": float(red),
+        "cards": float(yellow + red)
     }
 
 
@@ -910,80 +522,43 @@ def recent_matches(
     limit,
     venue
 ):
-
     if not league_id:
         return []
 
     try:
-
         data = api_get(
             f"v1/leagues/{league_id}/matches"
         )
-
     except Exception:
         return []
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return []
 
     result = []
 
-    for match in (
-        data.get("matches")
-        or []
-    ):
-
-        if (
-            match.get("id")
-            == current_id
-        ):
+    for match in data.get("matches") or []:
+        if match.get("id") == current_id:
             continue
 
-        home = (
-            match.get("home_team")
-            or {}
-        )
-
-        away = (
-            match.get("away_team")
-            or {}
-        )
+        home = match.get("home_team") or {}
+        away = match.get("away_team") or {}
 
         if venue == "home":
-
-            if (
-                home.get("id")
-                != team_id
-            ):
+            if home.get("id") != team_id:
                 continue
-
         elif venue == "away":
-
-            if (
-                away.get("id")
-                != team_id
-            ):
+            if away.get("id") != team_id:
                 continue
-
         else:
-
             if (
-                home.get("id")
-                != team_id
-                and
-                away.get("id")
-                != team_id
+                home.get("id") != team_id
+                and away.get("id") != team_id
             ):
                 continue
 
         status = str(
-            match.get(
-                "status",
-                ""
-            )
+            match.get("status", "")
         ).strip().lower()
 
         if status not in (
@@ -996,17 +571,13 @@ def recent_matches(
         ):
             continue
 
-        result.append(
-            match
-        )
+        result.append(match)
 
     result.sort(
         key=lambda item: (
             item.get("time_utc")
-            or
-            item.get("date")
-            or
-            ""
+            or item.get("date")
+            or ""
         ),
         reverse=True
     )
@@ -1015,47 +586,27 @@ def recent_matches(
 
 
 # =========================================================
-# DADOS DE UMA EQUIPE NA PARTIDA
+# DADOS DA EQUIPE EM UMA PARTIDA
 # =========================================================
 
-def team_match_values(
-    match,
-    team_id
-):
-
-    match_id = (
-        match.get("id")
-    )
-
-    home = (
-        match.get("home_team")
-        or {}
-    )
+def team_match_values(match, team_id):
+    match_id = match.get("id")
+    home = match.get("home_team") or {}
 
     home_side = (
-        home.get("id")
-        == team_id
+        home.get("id") == team_id
     )
 
     if home_side:
-
         goals = number(
-            match.get(
-                "score_home"
-            )
+            match.get("score_home")
         )
-
     else:
-
         goals = number(
-            match.get(
-                "score_away"
-            )
+            match.get("score_away")
         )
 
-    stats = get_stats(
-        match_id
-    )
+    stats = get_stats(match_id)
 
     corners = find_exact_stat(
         stats,
@@ -1088,7 +639,6 @@ def team_match_values(
     )
 
     if shots is None:
-
         shots = shot_events(
             match_id,
             team_id
@@ -1104,7 +654,6 @@ def team_match_values(
     )
 
     if sot is None:
-
         sot = sot_from_shots(
             match_id,
             team_id
@@ -1116,55 +665,29 @@ def team_match_values(
     )
 
     if card_data is None:
-
         yellow_cards = None
         red_cards = None
         cards = None
-
     else:
-
-        yellow_cards = (
-            card_data[
-                "yellow_cards"
-            ]
-        )
-
-        red_cards = (
-            card_data[
-                "red_cards"
-            ]
-        )
-
-        cards = (
-            card_data[
-                "cards"
-            ]
-        )
+        yellow_cards = card_data[
+            "yellow_cards"
+        ]
+        red_cards = card_data[
+            "red_cards"
+        ]
+        cards = card_data[
+            "cards"
+        ]
 
     return {
-        "goals":
-            goals,
-
-        "corners":
-            corners,
-
-        "shots":
-            shots,
-
-        "sot":
-            sot,
-
-        "yellow_cards":
-            yellow_cards,
-
-        "red_cards":
-            red_cards,
-
-        "cards":
-            cards,
-
-        "fouls":
-            fouls
+        "goals": goals,
+        "corners": corners,
+        "shots": shots,
+        "sot": sot,
+        "yellow_cards": yellow_cards,
+        "red_cards": red_cards,
+        "cards": cards,
+        "fouls": fouls
     }
 
 
@@ -1172,38 +695,21 @@ def team_match_values(
 # ADVERSÁRIO
 # =========================================================
 
-def opponent_id_from_match(
-    match,
-    team_id
-):
+def opponent_id_from_match(match, team_id):
+    home = match.get("home_team") or {}
+    away = match.get("away_team") or {}
 
-    home = (
-        match.get("home_team")
-        or {}
-    )
-
-    away = (
-        match.get("away_team")
-        or {}
-    )
-
-    if (
-        home.get("id")
-        == team_id
-    ):
+    if home.get("id") == team_id:
         return away.get("id")
 
-    if (
-        away.get("id")
-        == team_id
-    ):
+    if away.get("id") == team_id:
         return home.get("id")
 
     return None
 
 
 # =========================================================
-# MÉDIA DA EQUIPE
+# MÉDIA
 # =========================================================
 
 def team_average(
@@ -1213,7 +719,6 @@ def team_average(
     limit,
     venue
 ):
-
     matches = recent_matches(
         league_id,
         team_id,
@@ -1246,129 +751,80 @@ def team_average(
     history = []
 
     for match in matches:
-
         own_row = team_match_values(
             match,
             team_id
         )
 
-        opponent_id = (
-            opponent_id_from_match(
-                match,
-                team_id
-            )
+        opponent_id = opponent_id_from_match(
+            match,
+            team_id
         )
 
         if opponent_id:
-
-            conceded_row = (
-                team_match_values(
-                    match,
-                    opponent_id
-                )
+            conceded_row = team_match_values(
+                match,
+                opponent_id
             )
-
         else:
-
             conceded_row = {
                 key: None
                 for key in keys
             }
 
         for key in keys:
-
             produced[key].append(
                 own_row.get(key)
             )
-
             conceded[key].append(
                 conceded_row.get(key)
             )
 
-        home = (
-            match.get("home_team")
-            or {}
-        )
-
-        away = (
-            match.get("away_team")
-            or {}
-        )
+        home = match.get("home_team") or {}
+        away = match.get("away_team") or {}
 
         history.append({
-            "match_id":
-                match.get("id"),
-
-            "home":
-                home.get(
-                    "name",
-                    ""
-                ),
-
-            "away":
-                away.get(
-                    "name",
-                    ""
-                ),
-
-            "produced":
-                own_row,
-
-            "conceded":
-                conceded_row
+            "match_id": match.get("id"),
+            "home": home.get("name", ""),
+            "away": away.get("name", ""),
+            "produced": own_row,
+            "conceded": conceded_row
         })
 
     return {
-        "matches_used":
-            len(matches),
-
-        "venue":
-            venue,
-
+        "matches_used": len(matches),
+        "venue": venue,
         "averages": {
-            key:
-                average(values)
+            key: average(values)
             for key, values
             in produced.items()
         },
-
         "coverage": {
-            key:
-                len([
-                    value
-                    for value in values
-                    if value is not None
-                ])
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
             for key, values
             in produced.items()
         },
-
-        "values":
-            produced,
-
+        "values": produced,
         "conceded_averages": {
-            key:
-                average(values)
+            key: average(values)
             for key, values
             in conceded.items()
         },
-
         "conceded_coverage": {
-            key:
-                len([
-                    value
-                    for value in values
-                    if value is not None
-                ])
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
             for key, values
             in conceded.items()
         },
-
-        "conceded_values":
-            conceded,
-
-        "history":
-            history
+        "conceded_values": conceded,
+        "history": history
     }
 
 
@@ -1376,88 +832,59 @@ def team_average(
 # RECORTE 5 JOGOS
 # =========================================================
 
-def slice_team_data(
-    team_data,
-    limit
-):
-
+def slice_team_data(team_data, limit):
     produced = {
-        key:
-            values[:limit]
+        key: values[:limit]
         for key, values
-        in team_data[
-            "values"
-        ].items()
+        in team_data["values"].items()
     }
 
     conceded = {
-        key:
-            values[:limit]
+        key: values[:limit]
         for key, values
         in team_data[
             "conceded_values"
         ].items()
     }
 
-    history = (
-        team_data[
-            "history"
-        ][:limit]
-    )
+    history = team_data[
+        "history"
+    ][:limit]
 
     return {
-        "matches_used":
-            len(history),
-
-        "venue":
-            team_data.get(
-                "venue"
-            ),
-
+        "matches_used": len(history),
+        "venue": team_data.get("venue"),
         "averages": {
-            key:
-                average(values)
+            key: average(values)
             for key, values
             in produced.items()
         },
-
         "coverage": {
-            key:
-                len([
-                    value
-                    for value in values
-                    if value is not None
-                ])
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
             for key, values
             in produced.items()
         },
-
-        "values":
-            produced,
-
+        "values": produced,
         "conceded_averages": {
-            key:
-                average(values)
+            key: average(values)
             for key, values
             in conceded.items()
         },
-
         "conceded_coverage": {
-            key:
-                len([
-                    value
-                    for value in values
-                    if value is not None
-                ])
+            key: len([
+                value
+                for value in values
+                if value is not None
+            ])
             for key, values
             in conceded.items()
         },
-
-        "conceded_values":
-            conceded,
-
-        "history":
-            history
+        "conceded_values": conceded,
+        "history": history
     }
 
 
@@ -1465,11 +892,7 @@ def slice_team_data(
 # LINHAS
 # =========================================================
 
-def line_result(
-    values,
-    threshold
-):
-
+def line_result(values, threshold):
     valid = [
         float(value)
         for value in values
@@ -1477,19 +900,11 @@ def line_result(
     ]
 
     if not valid:
-
         return {
-            "line":
-                threshold,
-
-            "hits":
-                0,
-
-            "games":
-                0,
-
-            "rate":
-                None
+            "line": threshold,
+            "hits": 0,
+            "games": 0,
+            "rate": None
         }
 
     hits = sum(
@@ -1498,134 +913,59 @@ def line_result(
         if value > threshold
     )
 
-    rate = round(
-        hits
-        / len(valid)
-        * 100,
-        1
-    )
-
     return {
-        "line":
-            threshold,
-
-        "hits":
-            hits,
-
-        "games":
-            len(valid),
-
-        "rate":
-            rate
+        "line": threshold,
+        "hits": hits,
+        "games": len(valid),
+        "rate": round(
+            hits / len(valid) * 100,
+            1
+        )
     }
 
 
 LINE_DEFINITIONS = [
-
-    (
-        "goals",
-        "+0.5 Gols",
-        0.5
-    ),
-
-    (
-        "corners",
-        "+3.5 Escanteios",
-        3.5
-    ),
-
-    (
-        "corners",
-        "+4.5 Escanteios",
-        4.5
-    ),
-
-    (
-        "shots",
-        "+9.5 Finalizações",
-        9.5
-    ),
-
-    (
-        "shots",
-        "+12.5 Finalizações",
-        12.5
-    ),
-
-    (
-        "sot",
-        "+2.5 Chutes no gol",
-        2.5
-    ),
-
-    (
-        "sot",
-        "+3.5 Chutes no gol",
-        3.5
-    ),
-
+    ("goals", "+0.5 Gols", 0.5),
+    ("corners", "+3.5 Escanteios", 3.5),
+    ("corners", "+4.5 Escanteios", 4.5),
+    ("shots", "+9.5 Finalizações", 9.5),
+    ("shots", "+12.5 Finalizações", 12.5),
+    ("sot", "+2.5 Chutes no gol", 2.5),
+    ("sot", "+3.5 Chutes no gol", 3.5),
     (
         "yellow_cards",
         "+0.5 Cartões amarelos",
         0.5
     ),
-
     (
         "yellow_cards",
         "+1.5 Cartões amarelos",
         1.5
     ),
-
     (
         "yellow_cards",
         "+2.5 Cartões amarelos",
         2.5
     ),
-
     (
         "red_cards",
         "+0.5 Cartões vermelhos",
         0.5
     ),
-
-    (
-        "fouls",
-        "+9.5 Faltas",
-        9.5
-    ),
-
-    (
-        "fouls",
-        "+10.5 Faltas",
-        10.5
-    )
+    ("fouls", "+9.5 Faltas", 9.5),
+    ("fouls", "+10.5 Faltas", 10.5)
 ]
 
 
-def build_lines_from_values(
-    values
-):
-
+def build_lines_from_values(values):
     result = []
 
-    for (
-        metric,
-        label,
-        threshold
-    ) in LINE_DEFINITIONS:
-
+    for metric, label, threshold in LINE_DEFINITIONS:
         result.append({
-            "metric":
-                metric,
-
-            "label":
-                label,
-
+            "metric": metric,
+            "label": label,
             **line_result(
-                values.get(
-                    metric,
-                    []
-                ),
+                values.get(metric, []),
                 threshold
             )
         })
@@ -1633,25 +973,15 @@ def build_lines_from_values(
     return result
 
 
-def build_lines(
-    team_data
-):
-
+def build_lines(team_data):
     return build_lines_from_values(
-        team_data[
-            "values"
-        ]
+        team_data["values"]
     )
 
 
-def build_conceded_lines(
-    team_data
-):
-
+def build_conceded_lines(team_data):
     return build_lines_from_values(
-        team_data[
-            "conceded_values"
-        ]
+        team_data["conceded_values"]
     )
 
 
@@ -1663,13 +993,10 @@ def build_cross_lines(
     produced_team,
     opponent_team
 ):
-
     result = []
 
     produced_values = (
-        produced_team[
-            "values"
-        ]
+        produced_team["values"]
     )
 
     opponent_conceded = (
@@ -1679,9 +1006,7 @@ def build_cross_lines(
     )
 
     produced_avg = (
-        produced_team[
-            "averages"
-        ]
+        produced_team["averages"]
     )
 
     conceded_avg = (
@@ -1690,12 +1015,7 @@ def build_cross_lines(
         ]
     )
 
-    for (
-        metric,
-        label,
-        threshold
-    ) in LINE_DEFINITIONS:
-
+    for metric, label, threshold in LINE_DEFINITIONS:
         own_result = line_result(
             produced_values.get(
                 metric,
@@ -1704,26 +1024,17 @@ def build_cross_lines(
             threshold
         )
 
-        conceded_result = (
-            line_result(
-                opponent_conceded.get(
-                    metric,
-                    []
-                ),
-                threshold
-            )
+        conceded_result = line_result(
+            opponent_conceded.get(
+                metric,
+                []
+            ),
+            threshold
         )
 
-        own_rate = (
-            own_result.get(
-                "rate"
-            )
-        )
-
-        conceded_rate = (
-            conceded_result.get(
-                "rate"
-            )
+        own_rate = own_result.get("rate")
+        conceded_rate = conceded_result.get(
+            "rate"
         )
 
         rates = [
@@ -1736,120 +1047,69 @@ def build_cross_lines(
         ]
 
         if rates:
-
             cross_rate = round(
-                sum(rates)
-                / len(rates),
+                sum(rates) / len(rates),
                 1
             )
-
         else:
-
             cross_rate = None
 
         averages = [
             value
             for value in (
-                produced_avg.get(
-                    metric
-                ),
-
-                conceded_avg.get(
-                    metric
-                )
+                produced_avg.get(metric),
+                conceded_avg.get(metric)
             )
             if value is not None
         ]
 
         if averages:
-
             cross_average = round(
                 sum(averages)
                 / len(averages),
                 2
             )
-
         else:
-
             cross_average = None
 
         result.append({
-            "metric":
-                metric,
-
-            "label":
-                label,
-
-            "line":
-                threshold,
-
+            "metric": metric,
+            "label": label,
+            "line": threshold,
             "produced": {
-                "average":
-                    produced_avg.get(
-                        metric
-                    ),
-
-                "hits":
-                    own_result[
-                        "hits"
-                    ],
-
-                "games":
-                    own_result[
-                        "games"
-                    ],
-
-                "rate":
-                    own_rate
+                "average": produced_avg.get(metric),
+                "hits": own_result["hits"],
+                "games": own_result["games"],
+                "rate": own_rate
             },
-
             "opponent_conceded": {
-                "average":
-                    conceded_avg.get(
-                        metric
-                    ),
-
-                "hits":
-                    conceded_result[
-                        "hits"
-                    ],
-
-                "games":
-                    conceded_result[
-                        "games"
-                    ],
-
-                "rate":
-                    conceded_rate
+                "average": conceded_avg.get(metric),
+                "hits": conceded_result["hits"],
+                "games": conceded_result["games"],
+                "rate": conceded_rate
             },
-
-            "cross_average":
-                cross_average,
-
-            "cross_rate":
-                cross_rate
+            "cross_average": cross_average,
+            "cross_rate": cross_rate
         })
 
     return result
 
 
 # =========================================================
-# TENDÊNCIA 5 X 10
+# TENDÊNCIA
 # =========================================================
 
 def build_trend_lines(
     cross_5,
     cross_10
 ):
-
     result = []
 
     map_5 = {
         (
             item.get("metric"),
             item.get("line")
-        ):
-            item
+        ): item
         for item in cross_5
     }
 
@@ -1857,112 +1117,55 @@ def build_trend_lines(
         (
             item.get("metric"),
             item.get("line")
-        ):
-            item
+        ): item
         for item in cross_10
     }
 
     keys = []
 
     for key in map_10:
-
         if key not in keys:
-            keys.append(
-                key
-            )
+            keys.append(key)
 
     for key in map_5:
-
         if key not in keys:
-            keys.append(
-                key
-            )
+            keys.append(key)
 
     for key in keys:
+        item_5 = map_5.get(key) or {}
+        item_10 = map_10.get(key) or {}
+        base = item_10 or item_5
 
-        item_5 = (
-            map_5.get(key)
-            or {}
-        )
-
-        item_10 = (
-            map_10.get(key)
-            or {}
-        )
-
-        base = (
-            item_10
-            or item_5
-        )
-
-        rate_5 = (
-            item_5.get(
-                "cross_rate"
-            )
-        )
-
-        rate_10 = (
-            item_10.get(
-                "cross_rate"
-            )
-        )
+        rate_5 = item_5.get("cross_rate")
+        rate_10 = item_10.get("cross_rate")
 
         difference = None
         trend = "sem_dados"
 
         if (
             rate_5 is not None
-            and
-            rate_10 is not None
+            and rate_10 is not None
         ):
-
             difference = round(
-                rate_5
-                - rate_10,
+                rate_5 - rate_10,
                 1
             )
 
             if difference > 5:
-
                 trend = "subindo"
-
             elif difference < -5:
-
-                trend = (
-                    "enfraquecendo"
-                )
-
+                trend = "enfraquecendo"
             else:
-
                 trend = "mantida"
 
         result.append({
-            "metric":
-                base.get(
-                    "metric"
-                ),
-
-            "label":
-                base.get(
-                    "label"
-                ),
-
-            "line":
-                base.get(
-                    "line"
-                ),
-
-            "recent_5":
-                item_5,
-
-            "recent_10":
-                item_10,
-
-            "difference":
-                difference,
-
-            "trend":
-                trend
+            "metric": base.get("metric"),
+            "label": base.get("label"),
+            "line": base.get("line"),
+            "recent_5": item_5,
+            "recent_10": item_10,
+            "difference": difference,
+            "trend": trend
         })
 
     return result
@@ -1974,7 +1177,6 @@ def build_trend_lines(
 
 @app.get("/")
 def index():
-
     return send_from_directory(
         "static",
         "index.html"
@@ -1987,210 +1189,186 @@ def index():
 
 @app.get("/api/health")
 def health():
-
     return jsonify({
-        "ok":
-            True,
-
-        "provider":
-            "PITCHAPI",
-
-        "api_configured":
-            bool(API_KEY),
-
-        "demo_mode":
-            False,
-
-        "timezone":
-            TIMEZONE,
-
-        "version":
-            "TODAY-FIX-V3"
+        "ok": True,
+        "provider": "PITCHAPI",
+        "api_configured": bool(API_KEY),
+        "demo_mode": False,
+        "timezone": TIMEZONE,
+        "version": "TODAY-FIX-V4"
     })
 
 
 # =========================================================
-# JOGO É DE HOJE EM BRASÍLIA?
+# PARTIDAS DE HOJE
 # =========================================================
 
 def match_is_today_brazil(
     match,
     today
 ):
-
-    time_utc = (
-        match.get(
-            "time_utc"
-        )
-    )
+    time_utc = match.get("time_utc")
 
     if time_utc:
-
-        local_day = (
-            local_match_day(
-                time_utc
-            )
+        local_day = local_match_day(
+            time_utc
         )
 
         if local_day:
-            return (
-                local_day
-                == today
-            )
+            return local_day == today
 
     raw_date = clean_text(
-        match.get(
-            "date"
-        )
+        match.get("date")
     )
 
     if raw_date:
-
-        return (
-            raw_date[:10]
-            == today
-        )
+        return raw_date[:10] == today
 
     return False
 
 
-# =========================================================
-# JOGOS DE UMA LIGA
-# =========================================================
+def extract_leagues(data):
+    if isinstance(data, list):
+        return data
 
-def league_matches_for_today(
+    if not isinstance(data, dict):
+        return []
+
+    return (
+        data.get("leagues")
+        or data.get("items")
+        or []
+    )
+
+
+def season_candidates(
     league,
     today
 ):
+    try:
+        year = int(today[:4])
+    except Exception:
+        return []
 
-    league_id = (
-        league.get(
-            "id"
-        )
-    )
+    preferred = [
+        f"{year}/{year + 1}",
+        str(year),
+        f"{year - 1}/{year}"
+    ]
+
+    available = league.get("seasons") or []
+
+    if not isinstance(available, list):
+        available = []
+
+    result = []
+
+    for season in preferred:
+        if season in available:
+            result.append(season)
+
+    # Se a lista de temporadas estiver atrasada ou em
+    # outro formato, tenta também as duas primeiras
+    # temporadas anunciadas pela própria API.
+    for season in available[:2]:
+        if season and season not in result:
+            result.append(str(season))
+
+    return result[:3]
+
+
+def league_matches_for_season(
+    league,
+    season,
+    today
+):
+    league_id = league.get("id")
 
     if not league_id:
         return []
 
     try:
+        season_param = quote(
+            str(season),
+            safe=""
+        )
 
         data = api_get(
             f"v1/leagues/"
             f"{league_id}/matches"
+            f"?season={season_param}"
         )
 
     except Exception:
         return []
 
-    if not isinstance(
-        data,
-        dict
-    ):
+    if not isinstance(data, dict):
         return []
 
     result = []
 
-    for match in (
-        data.get("matches")
-        or []
-    ):
-
+    for match in data.get("matches") or []:
         if not match_is_today_brazil(
             match,
             today
         ):
             continue
 
-        item = dict(
-            match
-        )
+        item = dict(match)
 
         current_league = (
-            item.get(
-                "league"
-            )
+            item.get("league")
             or {}
         )
 
         if not current_league:
-
             item["league"] = {
-                "id":
-                    league.get(
-                        "id"
-                    ),
-
-                "name":
-                    league.get(
-                        "name",
-                        "Competição"
-                    ),
-
-                "image_url":
-                    league.get(
-                        "image_url",
-                        ""
-                    )
+                "id": league.get("id"),
+                "name": league.get(
+                    "name",
+                    "Competição"
+                ),
+                "image_url": league.get(
+                    "image_url",
+                    ""
+                )
             }
 
-        result.append(
-            item
-        )
+        result.append(item)
 
     return result
-
-
-# =========================================================
-# TODAS AS LIGAS
-# =========================================================
-
-def extract_leagues(
-    data
-):
-
-    if isinstance(
-        data,
-        list
-    ):
-        return data
-
-    if not isinstance(
-        data,
-        dict
-    ):
-        return []
-
-    return (
-        data.get("leagues")
-        or
-        data.get("items")
-        or
-        []
-    )
 
 
 def fixtures_from_all_leagues(
     today
 ):
-
     try:
-
-        data = api_get(
-            "v1/leagues"
-        )
-
+        data = api_get("v1/leagues")
     except Exception:
         return []
 
-    leagues = extract_leagues(
-        data
-    )
+    leagues = extract_leagues(data)
 
     if not leagues:
         return []
 
-    matches = []
+    jobs = []
 
+    for league in leagues:
+        if not isinstance(league, dict):
+            continue
+
+        seasons = season_candidates(
+            league,
+            today
+        )
+
+        for season in seasons:
+            jobs.append(
+                (league, season)
+            )
+
+    matches = []
     seen_ids = set()
 
     with ThreadPoolExecutor(
@@ -2199,38 +1377,29 @@ def fixtures_from_all_leagues(
 
         futures = {
             executor.submit(
-                league_matches_for_today,
+                league_matches_for_season,
                 league,
+                season,
                 today
-            ):
-                league
-            for league in leagues
-            if isinstance(
-                league,
-                dict
+            ): (
+                league.get("id"),
+                season
             )
+            for league, season in jobs
         }
 
         for future in as_completed(
             futures
         ):
-
             try:
-
                 league_matches = (
                     future.result()
                 )
-
             except Exception:
                 continue
 
             for match in league_matches:
-
-                match_id = (
-                    match.get(
-                        "id"
-                    )
-                )
+                match_id = match.get("id")
 
                 if not match_id:
                     continue
@@ -2238,154 +1407,77 @@ def fixtures_from_all_leagues(
                 if match_id in seen_ids:
                     continue
 
-                seen_ids.add(
-                    match_id
-                )
-
-                matches.append(
-                    match
-                )
+                seen_ids.add(match_id)
+                matches.append(match)
 
     return matches
 
 
-# =========================================================
-# PARTIDAS DE HOJE
-# =========================================================
-
 @app.get("/api/fixtures/today")
 def fixtures_today():
-
     try:
-
         now_local = datetime.now(
             ZoneInfo(TIMEZONE)
         )
 
-        today = (
-            now_local.strftime(
-                "%Y-%m-%d"
-            )
+        today = now_local.strftime(
+            "%Y-%m-%d"
         )
 
-        now_timestamp = (
-            time.time()
-        )
-
-        # =================================================
-        # CACHE
-        # =================================================
+        now_timestamp = time.time()
 
         if (
-            FIXTURES_CACHE[
-                "date"
-            ] == today
-            and
-            (
+            FIXTURES_CACHE["date"] == today
+            and (
                 now_timestamp
-                -
-                FIXTURES_CACHE[
-                    "created_at"
-                ]
-                <
-                FIXTURES_CACHE_SECONDS
+                - FIXTURES_CACHE["created_at"]
+                < FIXTURES_CACHE_SECONDS
             )
         ):
-
             return jsonify({
-                "mode":
-                    "live",
-
-                "message":
-                    "",
-
-                "date":
-                    today,
-
-                "timezone":
-                    TIMEZONE,
-
-                "source":
-                    "cache",
-
-                "fixtures":
-                    FIXTURES_CACHE[
-                        "matches"
-                    ]
+                "mode": "live",
+                "message": "",
+                "date": today,
+                "timezone": TIMEZONE,
+                "source": "cache",
+                "fixtures": FIXTURES_CACHE["matches"]
             })
 
         matches = []
-
         seen_ids = set()
-
-        # =================================================
-        # BUSCA POR DATA
-        #
-        # Verificamos ontem, hoje e amanhã na data UTC
-        # e depois mantemos apenas os jogos que realmente
-        # caem hoje no horário de Brasília.
-        # =================================================
 
         dates_to_check = [
             (
                 now_local
-                - timedelta(
-                    days=1
-                )
-            ).strftime(
-                "%Y-%m-%d"
-            ),
-
+                - timedelta(days=1)
+            ).strftime("%Y-%m-%d"),
             today,
-
             (
                 now_local
-                + timedelta(
-                    days=1
-                )
-            ).strftime(
-                "%Y-%m-%d"
-            )
+                + timedelta(days=1)
+            ).strftime("%Y-%m-%d")
         ]
 
+        # 1) Busca normal por data.
         for date_value in dates_to_check:
-
             try:
-
                 data = api_get(
-                    f"v1/date/"
-                    f"{date_value}"
+                    f"v1/date/{date_value}"
                 )
-
             except Exception:
                 continue
 
-            if not isinstance(
-                data,
-                dict
-            ):
+            if not isinstance(data, dict):
                 continue
 
-            api_matches = (
-                data.get(
-                    "matches"
-                )
-                or []
-            )
-
-            for match in api_matches:
-
+            for match in data.get("matches") or []:
                 if not match_is_today_brazil(
                     match,
                     today
                 ):
                     continue
 
-                match_id = (
-                    match.get(
-                        "id"
-                    )
-                )
+                match_id = match.get("id")
 
                 if not match_id:
                     continue
@@ -2393,21 +1485,11 @@ def fixtures_today():
                 if match_id in seen_ids:
                     continue
 
-                seen_ids.add(
-                    match_id
-                )
+                seen_ids.add(match_id)
+                matches.append(match)
 
-                matches.append(
-                    match
-                )
-
-        # =================================================
-        # BUSCA EXTRA PELAS LIGAS
-        #
-        # Serve para tentar encontrar partidas que não
-        # apareceram no endpoint /v1/date.
-        # =================================================
-
+        # 2) Busca extra usando temporadas explícitas
+        #    anunciadas em /v1/leagues.
         league_matches = (
             fixtures_from_all_leagues(
                 today
@@ -2415,12 +1497,7 @@ def fixtures_today():
         )
 
         for match in league_matches:
-
-            match_id = (
-                match.get(
-                    "id"
-                )
-            )
+            match_id = match.get("id")
 
             if not match_id:
                 continue
@@ -2428,90 +1505,42 @@ def fixtures_today():
             if match_id in seen_ids:
                 continue
 
-            seen_ids.add(
-                match_id
-            )
-
-            matches.append(
-                match
-            )
-
-        # =================================================
-        # ORDENAR
-        # =================================================
+            seen_ids.add(match_id)
+            matches.append(match)
 
         matches.sort(
             key=lambda match: (
                 match_time(
-                    match.get(
-                        "time_utc"
-                    )
+                    match.get("time_utc")
                 )
                 or "99:99",
-
-                str(
-                    match.get(
-                        "id"
-                    )
-                    or ""
-                )
+                str(match.get("id") or "")
             )
         )
 
         normalized = [
-            normalize_match(
-                match
-            )
+            normalize_match(match)
             for match in matches
         ]
 
-        # =================================================
-        # CACHE
-        # =================================================
-
-        FIXTURES_CACHE[
-            "date"
-        ] = today
-
-        FIXTURES_CACHE[
-            "created_at"
-        ] = now_timestamp
-
-        FIXTURES_CACHE[
-            "matches"
-        ] = normalized
+        FIXTURES_CACHE["date"] = today
+        FIXTURES_CACHE["created_at"] = now_timestamp
+        FIXTURES_CACHE["matches"] = normalized
 
         return jsonify({
-            "mode":
-                "live",
-
-            "message":
-                "",
-
-            "date":
-                today,
-
-            "timezone":
-                TIMEZONE,
-
-            "source":
-                "date+leagues",
-
-            "fixtures":
-                normalized
+            "mode": "live",
+            "message": "",
+            "date": today,
+            "timezone": TIMEZONE,
+            "source": "date+season-leagues",
+            "fixtures": normalized
         })
 
     except Exception as error:
-
         return jsonify({
-            "mode":
-                "error",
-
-            "message":
-                str(error),
-
-            "fixtures":
-                []
+            "mode": "error",
+            "message": str(error),
+            "fixtures": []
         }), 502
 
 
@@ -2525,7 +1554,6 @@ def prepare_samples(
     away_id,
     fixture_id
 ):
-
     home_10 = team_average(
         league_id,
         home_id,
@@ -2553,17 +1581,10 @@ def prepare_samples(
     )
 
     return {
-        "home_10":
-            home_10,
-
-        "away_10":
-            away_10,
-
-        "home_5":
-            home_5,
-
-        "away_5":
-            away_5
+        "home_10": home_10,
+        "away_10": away_10,
+        "home_5": home_5,
+        "away_5": away_5
     }
 
 
@@ -2575,53 +1596,25 @@ def build_analysis_payload(
     fixture_id,
     sample
 ):
-
     fixture = api_get(
-        f"v1/matches/"
-        f"{fixture_id}"
+        f"v1/matches/{fixture_id}"
     )
 
     if not isinstance(
         fixture,
         dict
     ):
-
         raise RuntimeError(
             "Partida não encontrada."
         )
 
-    league = (
-        fixture.get("league")
-        or {}
-    )
+    league = fixture.get("league") or {}
+    home = fixture.get("home_team") or {}
+    away = fixture.get("away_team") or {}
 
-    home = (
-        fixture.get("home_team")
-        or {}
-    )
-
-    away = (
-        fixture.get("away_team")
-        or {}
-    )
-
-    league_id = (
-        league.get(
-            "id"
-        )
-    )
-
-    home_id = (
-        home.get(
-            "id"
-        )
-    )
-
-    away_id = (
-        away.get(
-            "id"
-        )
-    )
+    league_id = league.get("id")
+    home_id = home.get("id")
+    away_id = away.get("id")
 
     match_context = (
         build_match_context(
@@ -2629,9 +1622,7 @@ def build_analysis_payload(
         )
     )
 
-    h2h = get_h2h(
-        fixture_id
-    )
+    h2h = get_h2h(fixture_id)
 
     samples = prepare_samples(
         league_id,
@@ -2640,29 +1631,10 @@ def build_analysis_payload(
         fixture_id
     )
 
-    home_10 = (
-        samples[
-            "home_10"
-        ]
-    )
-
-    away_10 = (
-        samples[
-            "away_10"
-        ]
-    )
-
-    home_5 = (
-        samples[
-            "home_5"
-        ]
-    )
-
-    away_5 = (
-        samples[
-            "away_5"
-        ]
-    )
+    home_10 = samples["home_10"]
+    away_10 = samples["away_10"]
+    home_5 = samples["home_5"]
+    away_5 = samples["away_5"]
 
     home_cross_10 = (
         build_cross_lines(
@@ -2707,328 +1679,153 @@ def build_analysis_payload(
     )
 
     if sample == 5:
-
         home_data = home_5
         away_data = away_5
-
-        home_cross = (
-            home_cross_5
-        )
-
-        away_cross = (
-            away_cross_5
-        )
-
+        home_cross = home_cross_5
+        away_cross = away_cross_5
     else:
-
         home_data = home_10
         away_data = away_10
+        home_cross = home_cross_10
+        away_cross = away_cross_10
 
-        home_cross = (
-            home_cross_10
-        )
-
-        away_cross = (
-            away_cross_10
-        )
-
-    h = (
-        home_data[
-            "averages"
-        ]
-    )
-
-    a = (
-        away_data[
-            "averages"
-        ]
-    )
+    h = home_data["averages"]
+    a = away_data["averages"]
 
     return {
-        "source":
-            "PITCHAPI",
-
-        "version":
-            "TODAY-FIX-V3",
-
-        "sample_size":
-            sample,
-
-        "match_info":
-            match_context,
-
-        "h2h":
-            h2h,
-
+        "source": "PITCHAPI",
+        "version": "TODAY-FIX-V4",
+        "sample_size": sample,
+        "match_info": match_context,
+        "h2h": h2h,
         "home": {
-            "id":
-                home_id,
-
-            "name":
-                home.get(
-                    "name",
-                    "Mandante"
-                ),
-
-            "logo":
-                home.get(
-                    "image_url",
-                    ""
-                ),
-
-            "venue":
-                "home",
-
-            "matches_used":
-                home_data[
-                    "matches_used"
-                ],
-
-            "matches_5":
-                home_5[
-                    "matches_used"
-                ],
-
-            "matches_10":
-                home_10[
-                    "matches_used"
-                ],
-
-            "coverage":
-                home_data[
-                    "coverage"
-                ],
-
-            "averages":
-                h,
-
-            "conceded":
-                home_data[
-                    "conceded_averages"
-                ],
-
-            "conceded_coverage":
-                home_data[
-                    "conceded_coverage"
-                ]
+            "id": home_id,
+            "name": home.get("name", "Mandante"),
+            "logo": home.get("image_url", ""),
+            "venue": "home",
+            "matches_used": home_data[
+                "matches_used"
+            ],
+            "matches_5": home_5[
+                "matches_used"
+            ],
+            "matches_10": home_10[
+                "matches_used"
+            ],
+            "coverage": home_data[
+                "coverage"
+            ],
+            "averages": h,
+            "conceded": home_data[
+                "conceded_averages"
+            ],
+            "conceded_coverage": home_data[
+                "conceded_coverage"
+            ]
         },
-
         "away": {
-            "id":
-                away_id,
-
-            "name":
-                away.get(
-                    "name",
-                    "Visitante"
-                ),
-
-            "logo":
-                away.get(
-                    "image_url",
-                    ""
-                ),
-
-            "venue":
-                "away",
-
-            "matches_used":
-                away_data[
-                    "matches_used"
-                ],
-
-            "matches_5":
-                away_5[
-                    "matches_used"
-                ],
-
-            "matches_10":
-                away_10[
-                    "matches_used"
-                ],
-
-            "coverage":
-                away_data[
-                    "coverage"
-                ],
-
-            "averages":
-                a,
-
-            "conceded":
-                away_data[
-                    "conceded_averages"
-                ],
-
-            "conceded_coverage":
-                away_data[
-                    "conceded_coverage"
-                ]
+            "id": away_id,
+            "name": away.get("name", "Visitante"),
+            "logo": away.get("image_url", ""),
+            "venue": "away",
+            "matches_used": away_data[
+                "matches_used"
+            ],
+            "matches_5": away_5[
+                "matches_used"
+            ],
+            "matches_10": away_10[
+                "matches_used"
+            ],
+            "coverage": away_data[
+                "coverage"
+            ],
+            "averages": a,
+            "conceded": away_data[
+                "conceded_averages"
+            ],
+            "conceded_coverage": away_data[
+                "conceded_coverage"
+            ]
         },
-
         "stats": [
             {
-                "label":
-                    "Gols",
-
-                "home":
-                    h.get(
-                        "goals"
-                    ),
-
-                "away":
-                    a.get(
-                        "goals"
-                    )
+                "label": "Gols",
+                "home": h.get("goals"),
+                "away": a.get("goals")
             },
-
             {
-                "label":
-                    "Escanteios",
-
-                "home":
-                    h.get(
-                        "corners"
-                    ),
-
-                "away":
-                    a.get(
-                        "corners"
-                    )
+                "label": "Escanteios",
+                "home": h.get("corners"),
+                "away": a.get("corners")
             },
-
             {
-                "label":
-                    "Finalizações",
-
-                "home":
-                    h.get(
-                        "shots"
-                    ),
-
-                "away":
-                    a.get(
-                        "shots"
-                    )
+                "label": "Finalizações",
+                "home": h.get("shots"),
+                "away": a.get("shots")
             },
-
             {
-                "label":
-                    "Chutes no gol",
-
-                "home":
-                    h.get(
-                        "sot"
-                    ),
-
-                "away":
-                    a.get(
-                        "sot"
-                    )
+                "label": "Chutes no gol",
+                "home": h.get("sot"),
+                "away": a.get("sot")
             },
-
             {
-                "label":
-                    "🟨 Amarelos",
-
-                "home":
-                    h.get(
-                        "yellow_cards"
-                    ),
-
-                "away":
-                    a.get(
-                        "yellow_cards"
-                    )
+                "label": "🟨 Amarelos",
+                "home": h.get(
+                    "yellow_cards"
+                ),
+                "away": a.get(
+                    "yellow_cards"
+                )
             },
-
             {
-                "label":
-                    "🟥 Vermelhos",
-
-                "home":
-                    h.get(
-                        "red_cards"
-                    ),
-
-                "away":
-                    a.get(
-                        "red_cards"
-                    )
+                "label": "🟥 Vermelhos",
+                "home": h.get(
+                    "red_cards"
+                ),
+                "away": a.get(
+                    "red_cards"
+                )
             },
-
             {
-                "label":
-                    "Faltas",
-
-                "home":
-                    h.get(
-                        "fouls"
-                    ),
-
-                "away":
-                    a.get(
-                        "fouls"
-                    )
+                "label": "Faltas",
+                "home": h.get("fouls"),
+                "away": a.get("fouls")
             }
         ],
-
         "lines": {
-            "home":
-                build_lines(
-                    home_data
-                ),
-
-            "away":
-                build_lines(
-                    away_data
-                )
+            "home": build_lines(
+                home_data
+            ),
+            "away": build_lines(
+                away_data
+            )
         },
-
         "conceded_lines": {
-            "home":
-                build_conceded_lines(
-                    home_data
-                ),
-
-            "away":
-                build_conceded_lines(
-                    away_data
-                )
+            "home": build_conceded_lines(
+                home_data
+            ),
+            "away": build_conceded_lines(
+                away_data
+            )
         },
-
         "cross": {
-            "home":
-                home_cross,
-
-            "away":
-                away_cross
+            "home": home_cross,
+            "away": away_cross
         },
-
         "cross_samples": {
             "last_5": {
-                "home":
-                    home_cross_5,
-
-                "away":
-                    away_cross_5
+                "home": home_cross_5,
+                "away": away_cross_5
             },
-
             "last_10": {
-                "home":
-                    home_cross_10,
-
-                "away":
-                    away_cross_10
+                "home": home_cross_10,
+                "away": away_cross_10
             }
         },
-
         "trends": {
-            "home":
-                home_trends,
-
-            "away":
-                away_trends
+            "home": home_trends,
+            "away": away_trends
         }
     }
 
@@ -3037,79 +1834,42 @@ def build_analysis_payload(
 # ANÁLISE
 # =========================================================
 
-@app.get(
-    "/api/analysis/<fixture_id>"
-)
+@app.get("/api/analysis/<fixture_id>")
 def analysis(fixture_id):
-
     try:
-
         sample = int(
             request.args.get(
                 "sample",
                 10
             )
         )
-
     except Exception:
-
         sample = 10
 
-    if sample not in (
-        5,
-        10
-    ):
+    if sample not in (5, 10):
         sample = 10
 
     try:
-
-        data = build_analysis_payload(
-            fixture_id,
-            sample
-        )
-
         return jsonify(
-            data
+            build_analysis_payload(
+                fixture_id,
+                sample
+            )
         )
-
     except Exception as error:
-
         return jsonify({
-            "source":
-                "PITCHAPI",
-
-            "version":
-                "TODAY-FIX-V3",
-
-            "sample_size":
-                sample,
-
-            "match_info":
-                {},
-
-            "h2h":
-                empty_h2h(),
-
-            "stats":
-                [],
-
-            "lines":
-                {},
-
-            "conceded_lines":
-                {},
-
-            "cross":
-                {},
-
-            "cross_samples":
-                {},
-
-            "trends":
-                {},
-
-            "error":
-                str(error)
+            "source": "PITCHAPI",
+            "version": "TODAY-FIX-V4",
+            "sample_size": sample,
+            "match_info": {},
+            "h2h": empty_h2h(),
+            "stats": [],
+            "lines": {},
+            "conceded_lines": {},
+            "cross": {},
+            "cross_samples": {},
+            "trends": {},
+            "error": str(error)
         }), 502
 
 
@@ -3117,179 +1877,80 @@ def analysis(fixture_id):
 # LINHAS
 # =========================================================
 
-@app.get(
-    "/api/lines/<fixture_id>"
-)
+@app.get("/api/lines/<fixture_id>")
 def lines(fixture_id):
-
     try:
-
         sample = int(
             request.args.get(
                 "sample",
                 10
             )
         )
-
     except Exception:
-
         sample = 10
 
-    if sample not in (
-        5,
-        10
-    ):
+    if sample not in (5, 10):
         sample = 10
 
     try:
-
         data = build_analysis_payload(
             fixture_id,
             sample
         )
 
         return jsonify({
-            "sample_size":
-                sample,
-
-            "version":
-                data[
-                    "version"
-                ],
-
-            "match_info":
-                data[
-                    "match_info"
-                ],
-
-            "h2h":
-                data[
-                    "h2h"
-                ],
-
+            "sample_size": sample,
+            "version": data["version"],
+            "match_info": data["match_info"],
+            "h2h": data["h2h"],
             "home": {
-                "name":
-                    data[
-                        "home"
-                    ][
-                        "name"
-                    ],
-
-                "venue":
-                    data[
-                        "home"
-                    ][
-                        "venue"
-                    ],
-
-                "matches_used":
-                    data[
-                        "home"
-                    ][
-                        "matches_used"
-                    ],
-
-                "matches_5":
-                    data[
-                        "home"
-                    ][
-                        "matches_5"
-                    ],
-
-                "matches_10":
-                    data[
-                        "home"
-                    ][
-                        "matches_10"
-                    ],
-
-                "lines":
-                    data[
-                        "lines"
-                    ][
-                        "home"
-                    ],
-
-                "conceded_lines":
-                    data[
-                        "conceded_lines"
-                    ][
-                        "home"
-                    ]
+                "name": data["home"]["name"],
+                "venue": data["home"]["venue"],
+                "matches_used": data[
+                    "home"
+                ]["matches_used"],
+                "matches_5": data[
+                    "home"
+                ]["matches_5"],
+                "matches_10": data[
+                    "home"
+                ]["matches_10"],
+                "lines": data[
+                    "lines"
+                ]["home"],
+                "conceded_lines": data[
+                    "conceded_lines"
+                ]["home"]
             },
-
             "away": {
-                "name":
-                    data[
-                        "away"
-                    ][
-                        "name"
-                    ],
-
-                "venue":
-                    data[
-                        "away"
-                    ][
-                        "venue"
-                    ],
-
-                "matches_used":
-                    data[
-                        "away"
-                    ][
-                        "matches_used"
-                    ],
-
-                "matches_5":
-                    data[
-                        "away"
-                    ][
-                        "matches_5"
-                    ],
-
-                "matches_10":
-                    data[
-                        "away"
-                    ][
-                        "matches_10"
-                    ],
-
-                "lines":
-                    data[
-                        "lines"
-                    ][
-                        "away"
-                    ],
-
-                "conceded_lines":
-                    data[
-                        "conceded_lines"
-                    ][
-                        "away"
-                    ]
+                "name": data["away"]["name"],
+                "venue": data["away"]["venue"],
+                "matches_used": data[
+                    "away"
+                ]["matches_used"],
+                "matches_5": data[
+                    "away"
+                ]["matches_5"],
+                "matches_10": data[
+                    "away"
+                ]["matches_10"],
+                "lines": data[
+                    "lines"
+                ]["away"],
+                "conceded_lines": data[
+                    "conceded_lines"
+                ]["away"]
             },
-
-            "cross":
-                data[
-                    "cross"
-                ],
-
-            "cross_samples":
-                data[
-                    "cross_samples"
-                ],
-
-            "trends":
-                data[
-                    "trends"
-                ]
+            "cross": data["cross"],
+            "cross_samples": data[
+                "cross_samples"
+            ],
+            "trends": data["trends"]
         })
 
     except Exception as error:
-
         return jsonify({
-            "error":
-                str(error)
+            "error": str(error)
         }), 502
 
 
@@ -3297,13 +1958,9 @@ def lines(fixture_id):
 # DIAGNÓSTICO DAS DATAS
 # =========================================================
 
-@app.get(
-    "/api/debug/dates"
-)
+@app.get("/api/debug/dates")
 def debug_dates():
-
     try:
-
         now_local = datetime.now(
             ZoneInfo(TIMEZONE)
         )
@@ -3311,179 +1968,154 @@ def debug_dates():
         dates_to_check = [
             (
                 now_local
-                - timedelta(
-                    days=1
-                )
-            ).strftime(
-                "%Y-%m-%d"
-            ),
-
+                - timedelta(days=1)
+            ).strftime("%Y-%m-%d"),
             now_local.strftime(
                 "%Y-%m-%d"
             ),
-
             (
                 now_local
-                + timedelta(
-                    days=1
-                )
-            ).strftime(
-                "%Y-%m-%d"
-            )
+                + timedelta(days=1)
+            ).strftime("%Y-%m-%d")
         ]
 
         result = {}
 
         for date_value in dates_to_check:
-
             try:
-
                 data = api_get(
-                    f"v1/date/"
-                    f"{date_value}"
+                    f"v1/date/{date_value}"
                 )
 
-                if isinstance(
-                    data,
-                    dict
-                ):
-
+                if isinstance(data, dict):
                     api_matches = (
-                        data.get(
-                            "matches"
-                        )
+                        data.get("matches")
                         or []
                     )
-
                 else:
-
                     api_matches = []
 
                 matches = []
 
                 for match in api_matches:
-
                     home = (
-                        match.get(
-                            "home_team"
-                        )
+                        match.get("home_team")
                         or {}
                     )
 
                     away = (
-                        match.get(
-                            "away_team"
-                        )
+                        match.get("away_team")
                         or {}
                     )
 
                     league = (
-                        match.get(
-                            "league"
-                        )
+                        match.get("league")
                         or {}
                     )
 
                     time_utc = (
-                        match.get(
-                            "time_utc"
-                        )
+                        match.get("time_utc")
                     )
 
                     matches.append({
-                        "id":
-                            match.get(
-                                "id"
-                            ),
-
-                        "league":
-                            league.get(
-                                "name"
-                            ),
-
-                        "home":
-                            home.get(
-                                "name"
-                            ),
-
-                        "away":
-                            away.get(
-                                "name"
-                            ),
-
-                        "api_date":
-                            match.get(
-                                "date"
-                            ),
-
-                        "time_utc":
-                            time_utc,
-
-                        "hora_brasilia":
-                            match_time(
-                                time_utc
-                            ),
-
-                        "dia_brasilia":
+                        "id": match.get("id"),
+                        "league": league.get(
+                            "name"
+                        ),
+                        "home": home.get("name"),
+                        "away": away.get("name"),
+                        "api_date": match.get(
+                            "date"
+                        ),
+                        "time_utc": time_utc,
+                        "hora_brasilia": (
+                            match_time(time_utc)
+                        ),
+                        "dia_brasilia": (
                             local_match_day(
                                 time_utc
-                            ),
-
-                        "status":
-                            match.get(
-                                "status"
                             )
+                        ),
+                        "status": match.get(
+                            "status"
+                        )
                     })
 
-                result[
-                    date_value
-                ] = {
-                    "total":
-                        len(
-                            api_matches
-                        ),
-
-                    "matches":
-                        matches
+                result[date_value] = {
+                    "total": len(api_matches),
+                    "matches": matches
                 }
 
             except Exception as error:
-
-                result[
-                    date_value
-                ] = {
-                    "total":
-                        0,
-
-                    "matches":
-                        [],
-
-                    "error":
-                        str(error)
+                result[date_value] = {
+                    "total": 0,
+                    "matches": [],
+                    "error": str(error)
                 }
 
         return jsonify({
-            "ok":
-                True,
-
-            "timezone":
-                TIMEZONE,
-
-            "agora_brasilia":
-                now_local.isoformat(),
-
-            "datas":
-                result
+            "ok": True,
+            "timezone": TIMEZONE,
+            "agora_brasilia": (
+                now_local.isoformat()
+            ),
+            "datas": result
         })
 
     except Exception as error:
+        return jsonify({
+            "ok": False,
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# DIAGNÓSTICO DAS TEMPORADAS
+# =========================================================
+
+@app.get("/api/debug/seasons")
+def debug_seasons():
+    try:
+        now_local = datetime.now(
+            ZoneInfo(TIMEZONE)
+        )
+
+        today = now_local.strftime(
+            "%Y-%m-%d"
+        )
+
+        data = api_get("v1/leagues")
+        leagues = extract_leagues(data)
+
+        result = []
+
+        for league in leagues:
+            if not isinstance(league, dict):
+                continue
+
+            result.append({
+                "id": league.get("id"),
+                "name": league.get("name"),
+                "seasons": league.get(
+                    "seasons"
+                ) or [],
+                "selected": season_candidates(
+                    league,
+                    today
+                )
+            })
 
         return jsonify({
-            "ok":
-                False,
+            "ok": True,
+            "date": today,
+            "total_leagues": len(result),
+            "leagues": result
+        })
 
-            "error":
-                str(error)
+    except Exception as error:
+        return jsonify({
+            "ok": False,
+            "error": str(error)
         }), 500
 
 
@@ -3492,12 +2124,8 @@ def debug_dates():
 # =========================================================
 
 if __name__ == "__main__":
-
     port = int(
-        os.getenv(
-            "PORT",
-            "5000"
-        )
+        os.getenv("PORT", "5000")
     )
 
     app.run(
